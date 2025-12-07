@@ -136,16 +136,24 @@ def run_training(config: ExperimentConfig) -> None:
         setattr(model, "_max_grad_norm", float(config.max_grad_norm))
     except Exception:
         pass
-    if config.resume_path is not None and config.resume_path.exists():
-        checkpoint = torch.load(config.resume_path, map_location="cpu")
-        model.load_state_dict(checkpoint["model_state"])
-        optimizer.load_state_dict(checkpoint["optimizer_state"])
-        scheduler.load_state_dict(checkpoint["scheduler_state"])
-        if scaler is not None and "scaler_state" in checkpoint and checkpoint["scaler_state"] is not None:
-            scaler.load_state_dict(checkpoint["scaler_state"])
-        start_epoch = checkpoint.get("epoch", 0) + 1
-        best_miou = checkpoint.get("best_miou", best_miou)
-        print(f"Resumed training from {config.resume_path} at epoch {start_epoch}")
+    # Support resume from checkpoint via config
+    resume_path = getattr(config, 'resume_from_checkpoint', None)
+    if resume_path is not None:
+        import os
+        if hasattr(resume_path, 'exists'):
+            exists = resume_path.exists()
+        else:
+            exists = os.path.exists(str(resume_path))
+        if exists:
+            checkpoint = torch.load(str(resume_path), map_location="cpu")
+            model.load_state_dict(checkpoint["model_state"])
+            optimizer.load_state_dict(checkpoint["optimizer_state"])
+            scheduler.load_state_dict(checkpoint["scheduler_state"])
+            if scaler is not None and "scaler_state" in checkpoint and checkpoint["scaler_state"] is not None:
+                scaler.load_state_dict(checkpoint["scaler_state"])
+            start_epoch = checkpoint.get("epoch", 0) + 1
+            best_miou = checkpoint.get("best_miou", best_miou)
+            print(f"Resumed training from {resume_path} at epoch {start_epoch}")
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
     history_path = config.output_dir / "history.json"

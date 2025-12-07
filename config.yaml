@@ -12,6 +12,7 @@ dataset:
     test: 0
     seed: 42
 
+
 training:
   output_dir: outputs/david
   batch_size: 2
@@ -27,6 +28,7 @@ training:
   max_checkpoints: 5
   seed: 1337
   force_resplit: false
+  resume_from_checkpoint: null  # Set to path of checkpoint to resume, e.g. outputs/david/best_model.pth
 
 # DataLoader settings
 dataloader:

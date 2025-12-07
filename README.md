@@ -133,9 +133,13 @@ pip install numpy pillow pyyaml matplotlib tqdm
 ## Configuration
 Primary configuration file: `config.yaml`
 
+
 Required keys:
 - `dataset.root`
 - `training.output_dir`
+
+Optional for checkpointing/resume:
+- `training.resume_from_checkpoint`: Path to a previous checkpoint to resume training (e.g., `outputs/david/best_model.pth`). Set to `null` to start fresh.
 
 Optional keys (defaults in brackets):
 - `dataset.include` — restrict training to specific sequence(s), e.g. `["Video_000"]` for single-sequence runs
@@ -169,6 +173,7 @@ If only a training sequence is provided (no validation/test), validation and vis
   ```powershell
   python train_david.py --config config.yaml
   ```
+  To resume from a previous checkpoint, set `training.resume_from_checkpoint` in your config file to the checkpoint path.
 4. **Verify outputs:** watch console progress, check `outputs/david/history.json`, and review generated checkpoints/visualizations.
 
 ## Outputs & Monitoring
