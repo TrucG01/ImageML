@@ -293,8 +293,8 @@ To use a more recent or custom model architecture (e.g., transformer-based, UNet
 <b>Bad Model Output</b><br>
 <img src="bad_output.png" width="360">
 
-- **Top:** Output from a well-trained model (clear class separation, accurate segmentation).
-- **Bottom:** Output from an underfit or poorly trained model (blurry, incorrect, or missing segmentation).
+- **Top:** Output from a trained model on training set (clear class separation, accurate segmentation).
+- **Bottom:** Output trained trained model on a validation dataset (incorrect, or missing segmentation).
 
 > Replace these images with your own results as you improve your models!
 
