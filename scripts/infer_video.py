@@ -14,8 +14,8 @@ except ImportError:
     CV2_AVAILABLE = False
 import numpy as np
 
-from david_backend.model import build_model
-from david_backend.data import encode_label_image, colorize_label_map, DEFAULT_MEAN, DEFAULT_STD
+from model_backend.model import build_model
+from model_backend.data import encode_label_image, colorize_label_map, DEFAULT_MEAN, DEFAULT_STD
 
 
 def load_checkpoint(model: torch.nn.Module, checkpoint_path: str) -> torch.nn.Module:
@@ -58,7 +58,7 @@ def infer_sequence(
     """
     image_paths = sorted([p for p in image_dir.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"}])
     output_dir.mkdir(parents=True, exist_ok=True)
-    from david_backend.data import CLASS_ID_TO_COLOR, CLASS_NAMES
+    from model_backend.data import CLASS_ID_TO_COLOR, CLASS_NAMES
     frames = []
     def draw_legend_area(image: np.ndarray, class_id_to_color, class_names, box_width=180, box_height=20, font_scale=0.5, font_thickness=1):
         # Creates a new canvas with the legend area to the right of the image

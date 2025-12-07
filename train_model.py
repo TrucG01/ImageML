@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from david_backend import train_from_config
+from model_backend import train_from_config
 
 
 def parse_args() -> argparse.Namespace:

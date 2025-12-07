@@ -302,7 +302,7 @@ def compute_class_weights(
     return weights.to(torch.float32)
 
 
-class DAVIDDataset(Dataset):
+class SegmentationDataset(Dataset):
     """
     PyTorch dataset wrapper for DAVID sequences.
 

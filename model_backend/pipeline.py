@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover - compatibility with older PyTorch
 from .config import ExperimentConfig
 from .data import (
     CLASS_NAMES,
-    DAVIDDataset,
+    SegmentationDataset,
     NUM_CLASSES,
     VOID_CLASS_ID,
     compute_class_weights,
@@ -70,7 +70,7 @@ def run_training(config: ExperimentConfig) -> None:
     for idx, weight in enumerate(train_weights.tolist()):
         print(f"  {idx:2d} ({CLASS_NAMES[idx]:>12}): {weight:.3f}")
 
-    train_dataset = DAVIDDataset(
+    train_dataset = SegmentationDataset(
         config.data_root,
         splits["train"],
         config.image_size,
@@ -91,7 +91,7 @@ def run_training(config: ExperimentConfig) -> None:
 
     val_loader = None
     if splits["val"]:
-        val_dataset = DAVIDDataset(
+        val_dataset = SegmentationDataset(
             config.data_root,
             splits["val"],
             config.image_size,

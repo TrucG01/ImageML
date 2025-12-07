@@ -37,7 +37,7 @@
 ## Architecture
 Root: `train_david.py`, `config.yaml`, `LICENSE`, `testing.ipynb`, `.gitignore`.
 Docs: `README.md` (quick start, config, dataset, roadmap).
-Package: `david_backend/` (config, data, engine, metrics, model, pipeline, visualization, __init__).
+Package: `model_backend/` (config, data, engine, metrics, model, pipeline, visualization, __init__).
 VCS: `.git/` tree.
 
 # ---
@@ -139,7 +139,7 @@ Required keys:
 - `training.output_dir`
 
 Optional for checkpointing/resume:
-- `training.resume_from_checkpoint`: Path to a previous checkpoint to resume training (e.g., `outputs/david/best_model.pth`). Set to `null` to start fresh.
+- `training.resume_from_checkpoint`: Path to a previous checkpoint to resume training (e.g., `outputs/model/best_model.pth`). Set to `null` to start fresh.
 
 Optional keys (defaults in brackets):
 - `dataset.include` — restrict training to specific sequence(s), e.g. `["Video_000"]` for single-sequence runs
@@ -174,13 +174,13 @@ If only a training sequence is provided (no validation/test), validation and vis
   python train_david.py --config config.yaml
   ```
   To resume from a previous checkpoint, set `training.resume_from_checkpoint` in your config file to the checkpoint path.
-4. **Verify outputs:** watch console progress, check `outputs/david/history.json`, and review generated checkpoints/visualizations.
+4. **Verify outputs:** watch console progress, check `outputs/model/history.json`, and review generated checkpoints/visualizations.
 
 ## Outputs & Monitoring
 - Console displays device selection, class weights, and per-epoch progress with loss + GPU memory usage.
 - Validation metrics (loss, mean IoU, per-class IoU) log whenever `val_interval` triggers.
 - Checkpoints stored under `training.output_dir`; the best model is mirrored to `best_model.pth`.
-- Optional visualization PNGs saved to `outputs/david/visualizations/epoch_XXX/` at configured intervals.
+- Optional visualization PNGs saved to `outputs/model/visualizations/epoch_XXX/` at configured intervals.
 
 ## Troubleshooting
 - **`EOFError: Ran out of input` on Windows:** Set `training.num_workers` to `0` to debug, ensure dataset paths are correct, and avoid missing label directories.
@@ -208,12 +208,12 @@ Configure `config.yaml`, run a training session, and share qualitative/quantitat
 
 ## Customizing the Model (Backbone, Layers, Activation)
 
-You can adjust the model architecture and hyperparameters by editing `david_backend/model.py` and (optionally) exposing new options in `config.yaml`.
+You can adjust the model architecture and hyperparameters by editing `model_backend/model.py` and (optionally) exposing new options in `config.yaml`.
 
 ### Example: Change Backbone or Activation
 
 1. **Change Backbone (e.g., ResNet50 → ResNet101):**
-   - Open `david_backend/model.py`.
+  - Open `model_backend/model.py`.
    - Find the model creation code (e.g., `torchvision.models.segmentation.deeplabv3_resnet50`).
    - Replace with another backbone, e.g., `deeplabv3_resnet101`.
 
@@ -243,7 +243,7 @@ You can adjust the model architecture and hyperparameters by editing `david_back
 To use a more recent or custom model architecture (e.g., transformer-based, UNet, or your own design):
 
 1. **Implement Your Model:**
-   - Create your model class in `david_backend/model.py` or a new file (e.g., `david_backend/custom_models.py`).
+  - Create your model class in `model_backend/model.py` or a new file (e.g., `model_backend/custom_models.py`).
    - Ensure it inherits from `torch.nn.Module` and implements a `forward` method.
    - Example:
      ```python
@@ -258,7 +258,7 @@ To use a more recent or custom model architecture (e.g., transformer-based, UNet
      ```
 
 2. **Update Model Builder:**
-   - In `david_backend/model.py`, update the `build_model` function to select your custom model based on a config key (e.g., `model.type: custom`).
+  - In `model_backend/model.py`, update the `build_model` function to select your custom model based on a config key (e.g., `model.type: custom`).
    - Example:
      ```python
      def build_model(num_classes, model_type="deeplabv3+", ...):
