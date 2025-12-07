@@ -1,0 +1,329 @@
+"""Configuration loading for the DAVID semantic segmentation pipeline."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional, Sequence, Tuple
+
+try:
+    import yaml
+except ImportError as exc:  # pragma: no cover - defensive import guard
+    raise ImportError(
+        "PyYAML is required to load configuration files. Install with 'pip install pyyaml'."
+    ) from exc
+
+
+CONFIG_DEFAULT_LOCATIONS = (Path("config.yaml"),)
+
+DEFAULTS = {
+    "batch_size": 4,
+    "val_batch_size": 4,
+    "epochs": 80,
+    "learning_rate": 1e-4,
+    "weight_decay": 1e-4,
+    "num_workers": 4,
+    "image_size": (512, 512),
+    "log_interval": 25,
+    "val_interval": 1,
+    "amp": True,
+    "seed": 1337,
+    "force_resplit": False,
+    "visualization_interval": 5,
+    "max_checkpoints": 5,
+    "backend": "auto",
+    "output_dir": "outputs",
+}
+
+
+@dataclass
+class SplitConfig:
+    train_count: int = 20
+    val_count: int = 4
+    test_count: int = 4
+    seed: int = 42
+
+
+@dataclass
+class ExperimentConfig:
+    data_root: Path
+    output_dir: Path
+    resume_path: Optional[Path]
+    batch_size: int
+    val_batch_size: int
+    epochs: int
+    learning_rate: float
+    weight_decay: float
+    num_workers: int
+    image_size: Tuple[int, int]
+    log_interval: int
+    val_interval: int
+    amp: bool
+    seed: int
+    force_resplit: bool
+    visualization_interval: int
+    max_checkpoints: int
+    backend: str
+    split: SplitConfig
+
+
+def coalesce(*values: Any) -> Any:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and value.strip() == "":
+            continue
+        return value
+    return None
+
+
+def extract_nested(config: Dict[str, Any], dotted_key: str) -> Any:
+    current: Any = config
+    for part in dotted_key.split("."):
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        else:
+            return None
+    return current
+
+
+def _normalize_image_size(value: Any) -> Tuple[int, int]:
+    if isinstance(value, (list, tuple)):
+        if len(value) == 2:
+            return int(value[0]), int(value[1])
+        if len(value) == 1:
+            side = int(value[0])
+            return side, side
+    if isinstance(value, (int, float)):
+        side = int(value)
+        return side, side
+    if isinstance(value, str):
+        cleaned = value.replace("x", " ").replace(",", " ")
+        parts = [part for part in cleaned.split() if part]
+        if len(parts) == 2:
+            return int(parts[0]), int(parts[1])
+        if len(parts) == 1:
+            side = int(parts[0])
+            return side, side
+    raise ValueError("image_size must resolve to two integers")
+
+
+def _to_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "yes", "1", "on"}:
+            return True
+        if lowered in {"false", "no", "0", "off"}:
+            return False
+    raise ValueError(f"Cannot convert {value!r} into a boolean")
+
+
+def _load_yaml(path: Path) -> Dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    if not isinstance(data, dict):
+        raise ValueError("Configuration file must contain a top-level mapping")
+    return data
+
+
+def _pick_numeric(
+    arg_value: Optional[Any],
+    config: Dict[str, Any],
+    keys: Sequence[str],
+    default_key: str,
+    cast_fn,
+):
+    if arg_value is not None:
+        return cast_fn(arg_value)
+    for key in keys:
+        candidate = extract_nested(config, key)
+        if candidate is not None:
+            return cast_fn(candidate)
+    return cast_fn(DEFAULTS[default_key])
+
+
+def load_config(config_path: Optional[Path]) -> ExperimentConfig:
+    path = config_path
+    if path is None:
+        for candidate in CONFIG_DEFAULT_LOCATIONS:
+            if candidate.exists():
+                path = candidate
+                break
+    if path is None:
+        raise FileNotFoundError(
+            "No configuration file supplied and default 'config.yaml' was not found."
+        )
+    path = path.expanduser()
+    if not path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {path}")
+    config_dir = path.parent
+    yaml_cfg = _load_yaml(path)
+
+    data_root_value = coalesce(
+        extract_nested(yaml_cfg, "dataset.root"),
+        extract_nested(yaml_cfg, "data.root"),
+        extract_nested(yaml_cfg, "DATA_ROOT"),
+        extract_nested(yaml_cfg, "INPUT_DIR"),
+    )
+    if data_root_value is None:
+        raise ValueError("Configuration missing 'dataset.root' (or equivalent) entry")
+    data_root = Path(str(data_root_value)).expanduser()
+    if not data_root.is_absolute():
+        data_root = (config_dir / data_root).resolve()
+    data_root = data_root.resolve()
+
+    output_dir_value = coalesce(
+        extract_nested(yaml_cfg, "training.output_dir"),
+        extract_nested(yaml_cfg, "output.dir"),
+        extract_nested(yaml_cfg, "OUTPUT_DIR"),
+        DEFAULTS["output_dir"],
+    )
+    if output_dir_value is None:
+        output_dir_value = "outputs"
+    output_dir = Path(str(output_dir_value)).expanduser()
+    if not output_dir.is_absolute():
+        output_dir = (config_dir / output_dir).resolve()
+    output_dir = output_dir.resolve()
+
+    resume_value = coalesce(
+        extract_nested(yaml_cfg, "training.resume"),
+        extract_nested(yaml_cfg, "resume"),
+    )
+    if resume_value is not None:
+        resume_path: Optional[Path] = Path(str(resume_value)).expanduser()
+        if not resume_path.is_absolute():
+            resume_path = (config_dir / resume_path).resolve()
+        resume_path = resume_path.resolve()
+    else:
+        resume_path = None
+
+    batch_size = _pick_numeric(None, yaml_cfg, ["training.batch_size"], "batch_size", int)
+    val_batch_size = _pick_numeric(
+        None,
+        yaml_cfg,
+        ["training.val_batch_size", "training.batch_size"],
+        "val_batch_size",
+        int,
+    )
+    epochs = _pick_numeric(None, yaml_cfg, ["training.epochs"], "epochs", int)
+    learning_rate = _pick_numeric(
+        None,
+        yaml_cfg,
+        ["training.learning_rate", "training.lr"],
+        "learning_rate",
+        float,
+    )
+    weight_decay = _pick_numeric(None, yaml_cfg, ["training.weight_decay"], "weight_decay", float)
+    num_workers = _pick_numeric(
+        None,
+        yaml_cfg,
+        ["training.num_workers", "data.num_workers"],
+        "num_workers",
+        int,
+    )
+
+    image_size_value = coalesce(
+        extract_nested(yaml_cfg, "training.image_size"),
+        extract_nested(yaml_cfg, "data.image_size"),
+        DEFAULTS["image_size"],
+    )
+    image_size = _normalize_image_size(image_size_value)
+
+    log_interval = _pick_numeric(None, yaml_cfg, ["training.log_interval"], "log_interval", int)
+    val_interval = _pick_numeric(None, yaml_cfg, ["training.val_interval"], "val_interval", int)
+    visualization_interval = _pick_numeric(
+        None,
+        yaml_cfg,
+        ["training.visualization_interval"],
+        "visualization_interval",
+        int,
+    )
+    max_checkpoints = _pick_numeric(
+        None,
+        yaml_cfg,
+        ["training.max_checkpoints"],
+        "max_checkpoints",
+        int,
+    )
+
+    backend_value = coalesce(
+        extract_nested(yaml_cfg, "backend.target"),
+        DEFAULTS["backend"],
+    )
+    backend = str(backend_value).lower()
+    if backend not in {"auto", "cuda", "rocm", "cpu"}:
+        raise ValueError(f"Unsupported backend '{backend}'. Choose from auto/cuda/rocm/cpu.")
+
+    amp_value = coalesce(
+        extract_nested(yaml_cfg, "backend.amp"),
+        extract_nested(yaml_cfg, "training.amp"),
+        DEFAULTS["amp"],
+    )
+    amp = _to_bool(amp_value)
+
+    seed_value = coalesce(
+        extract_nested(yaml_cfg, "training.seed"),
+        DEFAULTS["seed"],
+    )
+    seed = int(seed_value)
+
+    force_resplit_value = coalesce(
+        extract_nested(yaml_cfg, "dataset.force_resplit"),
+        extract_nested(yaml_cfg, "training.force_resplit"),
+        DEFAULTS["force_resplit"],
+    )
+    force_resplit = _to_bool(force_resplit_value)
+
+    split_defaults = SplitConfig()
+    split_cfg = SplitConfig(
+        train_count=int(
+            coalesce(
+                extract_nested(yaml_cfg, "dataset.split.train"),
+                split_defaults.train_count,
+            )
+        ),
+        val_count=int(
+            coalesce(
+                extract_nested(yaml_cfg, "dataset.split.val"),
+                split_defaults.val_count,
+            )
+        ),
+        test_count=int(
+            coalesce(
+                extract_nested(yaml_cfg, "dataset.split.test"),
+                split_defaults.test_count,
+            )
+        ),
+        seed=int(
+            coalesce(
+                extract_nested(yaml_cfg, "dataset.split.seed"),
+                split_defaults.seed,
+            )
+        ),
+    )
+
+    return ExperimentConfig(
+        data_root=data_root,
+        output_dir=output_dir,
+        resume_path=resume_path,
+        batch_size=batch_size,
+        val_batch_size=val_batch_size,
+        epochs=epochs,
+        learning_rate=learning_rate,
+        weight_decay=weight_decay,
+        num_workers=num_workers,
+        image_size=image_size,
+        log_interval=log_interval,
+        val_interval=val_interval,
+        amp=amp,
+        seed=seed,
+        force_resplit=force_resplit,
+        visualization_interval=visualization_interval,
+        max_checkpoints=max_checkpoints,
+        backend=backend,
+        split=split_cfg,
+    )
