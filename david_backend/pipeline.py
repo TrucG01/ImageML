@@ -219,3 +219,30 @@ def run_training(config: ExperimentConfig) -> None:
             json.dump(history, handle, indent=2)
 
     print(f"Training complete. Best validation mIoU: {best_miou:.4f}")
+
+    import shutil
+    # Always save final model checkpoint as best_model.pth
+    checkpoint_state = {
+        "epoch": config.epochs,
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "scheduler_state": scheduler.state_dict(),
+        "scaler_state": scaler.state_dict() if scaler is not None else None,
+        "best_miou": best_miou,
+    }
+    save_checkpoint(
+        checkpoint_state,
+        config.output_dir,
+        True,  # is_best
+        config.max_checkpoints,
+    )
+    # Ensure best_model.pth exists
+    best_path = config.output_dir / "best_model.pth"
+    last_path = config.output_dir / "checkpoint_last.pth"
+    # If best_model.pth was not created, copy the last checkpoint
+    if not best_path.exists() and last_path.exists():
+        shutil.copy(last_path, best_path)
+    if best_path.exists():
+        print(f"Final model checkpoint saved to {best_path}")
+    else:
+        print("Warning: Model checkpoint was not saved as best_model.pth!")

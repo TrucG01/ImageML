@@ -42,3 +42,5 @@
 
 .ai_meta/*
 meta_kernel.py
+
+outputs/*

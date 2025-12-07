@@ -1,3 +1,49 @@
+![Example Segmentation Output](example_output.png)
+
+# ---
+# Context Update (2025-12-07)
+
+## System Status
+- Python segmentation pipeline for DAVID-style datasets; meta-kernel operational.
+- Dataset config now targets sibling repo `../3D-image-processing` with `Images/` & `Labels/` dirs.
+- Training loop emits live progress (tqdm or inline), reports GPU memory.
+- README covers setup, architecture, troubleshooting.
+- Next: generate `requirements.txt`, implement `run_tests_py` tool (pytest wrapper).
+
+## Tool Registry
+- `project_structure`: JSON snapshot of directory tree.
+- Planned: `run_tests_py` (pytest), more meta tools.
+
+## Architecture
+- Root: `train_david.py`, `config.yaml`, `meta_kernel.py`, `LICENSE`, `testing.ipynb`, `.gitignore`.
+- Docs: `README.md` (quick start, config, dataset, roadmap).
+- Package: `david_backend/` (config, data, engine, metrics, model, pipeline, visualization, __init__).
+- Meta-layer: `.ai_meta/` (context map, tool scripts, kernel log).
+- VCS: `.git/` tree.
+
+# ---
+# README Update (2025-12-07)
+
+## Context Alignment
+This repository is actively maintained with a meta-layer for context tracking and tool orchestration. The dataset configuration now expects a sibling repository (`../3D-image-processing`) with `Images/` and `Labels/` directories. Training emits live progress bars and GPU memory usage. Immediate next steps include publishing a `requirements.txt` and implementing a `run_tests_py` tool for automated testing.
+
+## Tooling & Meta-Layer
+- Meta-kernel (`meta_kernel.py`) manages project structure and tool execution.
+- Planned tools: `run_tests_py` (pytest wrapper), linting, data validation.
+
+## Architecture Recap
+- Root files: `train_david.py`, `config.yaml`, `meta_kernel.py`, `LICENSE`, `testing.ipynb`, `.gitignore`.
+- Backend: `david_backend/` (config, data, engine, metrics, model, pipeline, visualization, __init__).
+- Documentation: `README.md` (setup, architecture, troubleshooting).
+- Meta: `.ai_meta/` (context map, tool scripts, kernel log).
+
+## Next Steps
+- Generate `requirements.txt` for reproducible environments.
+- Implement `run_tests_py` for test automation.
+- Expand meta-layer tooling and documentation.
+
+# ---
+
 # DAVID Segmentation Trainer
 
 ## Overview

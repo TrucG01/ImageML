@@ -58,7 +58,24 @@ def infer_sequence(
     """
     image_paths = sorted([p for p in image_dir.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"}])
     output_dir.mkdir(parents=True, exist_ok=True)
+    from david_backend.data import CLASS_ID_TO_COLOR, CLASS_NAMES
     frames = []
+    def draw_legend(image: np.ndarray, class_id_to_color, class_names, box_width=180, box_height=20, font_scale=0.5, font_thickness=1):
+        # Draws a legend box on the right side of the image
+        import cv2
+        legend = image.copy()
+        h, w, _ = legend.shape
+        x0 = w - box_width - 10
+        y0 = 10
+        for idx, (class_id, color) in enumerate(class_id_to_color.items()):
+            y = y0 + idx * box_height
+            cv2.rectangle(legend, (x0, y), (x0 + box_height, y + box_height), color, -1)
+            text = class_names[class_id]
+            cv2.putText(legend, text, (x0 + box_height + 5, y + box_height - 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), font_thickness, cv2.LINE_AA)
+        # Draw background rectangle for legend
+        cv2.rectangle(legend, (x0-5, y0-5), (x0+box_width, y0+len(class_id_to_color)*box_height+5), (0,0,0), 2)
+        return legend
+
     for img_path in image_paths:
         image = Image.open(img_path).convert("RGB")
         # Pillow >=9.1 uses Image.Resampling.BILINEAR, older uses Image.BILINEAR
@@ -79,8 +96,10 @@ def infer_sequence(
         if CV2_AVAILABLE:
             import cv2
             overlay = cv2.addWeighted(img_np, 0.6, pred_rgb, 0.4, 0)
+            overlay = draw_legend(overlay, CLASS_ID_TO_COLOR, CLASS_NAMES)
         else:
             overlay = (0.6 * img_np + 0.4 * pred_rgb).astype(np.uint8)
+            # If cv2 not available, skip legend
         frames.append(overlay)
         # Optionally save individual frames
         out_path = output_dir / f"{img_path.stem}_overlay.png"
@@ -114,7 +133,10 @@ def main() -> None:
     model = load_checkpoint(model, args.checkpoint)
     model.to(device)
     model.eval()
-    infer_sequence(model, device, args.image_dir, args.output_dir, tuple(args.image_size))
+    # Convert CLI string arguments to Path objects
+    image_dir = Path(args.image_dir)
+    output_dir = Path(args.output_dir)
+    infer_sequence(model, device, image_dir, output_dir, tuple(args.image_size))
 
 if __name__ == "__main__":
     main()
