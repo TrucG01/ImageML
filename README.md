@@ -26,44 +26,22 @@
 
 ## System Status
 - Python segmentation pipeline for DAVID-style datasets; meta-kernel operational.
-- Dataset config now targets sibling repo `../3D-image-processing` with `Images/` & `Labels/` dirs.
+- Dataset config now targets a sibling dataset repo (e.g., `../dataset-repo`) with `Images/` & `Labels/` dirs.
 - Training loop emits live progress (tqdm or inline), reports GPU memory.
 - README covers setup, architecture, troubleshooting.
 - Next: generate `requirements.txt`, implement `run_tests_py` tool (pytest wrapper).
 
 ## Tool Registry
-- `project_structure`: JSON snapshot of directory tree.
-- Planned: `run_tests_py` (pytest), more meta tools.
+*Project structure and test tools are available for internal use.*
 
 ## Architecture
-- Root: `train_david.py`, `config.yaml`, `meta_kernel.py`, `LICENSE`, `testing.ipynb`, `.gitignore`.
-- Docs: `README.md` (quick start, config, dataset, roadmap).
-- Package: `david_backend/` (config, data, engine, metrics, model, pipeline, visualization, __init__).
-- Meta-layer: `.ai_meta/` (context map, tool scripts, kernel log).
-- VCS: `.git/` tree.
+Root: `train_david.py`, `config.yaml`, `LICENSE`, `testing.ipynb`, `.gitignore`.
+Docs: `README.md` (quick start, config, dataset, roadmap).
+Package: `david_backend/` (config, data, engine, metrics, model, pipeline, visualization, __init__).
+VCS: `.git/` tree.
 
 # ---
-# README Update (2025-12-07)
 
-## Context Alignment
-This repository is actively maintained with a meta-layer for context tracking and tool orchestration. The dataset configuration now expects a sibling repository (`../3D-image-processing`) with `Images/` and `Labels/` directories. Training emits live progress bars and GPU memory usage. Immediate next steps include publishing a `requirements.txt` and implementing a `run_tests_py` tool for automated testing.
-
-## Tooling & Meta-Layer
-- Meta-kernel (`meta_kernel.py`) manages project structure and tool execution.
-- Planned tools: `run_tests_py` (pytest wrapper), linting, data validation.
-
-## Architecture Recap
-- Root files: `train_david.py`, `config.yaml`, `meta_kernel.py`, `LICENSE`, `testing.ipynb`, `.gitignore`.
-- Backend: `david_backend/` (config, data, engine, metrics, model, pipeline, visualization, __init__).
-- Documentation: `README.md` (setup, architecture, troubleshooting).
-- Meta: `.ai_meta/` (context map, tool scripts, kernel log).
-
-## Next Steps
-- Generate `requirements.txt` for reproducible environments.
-- Implement `run_tests_py` for test automation.
-- Expand meta-layer tooling and documentation.
-
-# ---
 
 # DAVID Segmentation Trainer
 
@@ -148,7 +126,7 @@ pip install numpy pillow pyyaml matplotlib tqdm
 ```
 
 ## Dataset Setup
-1. Clone or copy the DAVID-like dataset repository so that `Images/` and `Labels/` directories live under a shared root (e.g., `C:\Users\George\Github\3D-image-processing`).
+1. Clone or copy the DAVID-like dataset repository so that `Images/` and `Labels/` directories live under a shared root (e.g., `../dataset-repo`).
 2. Confirm that each sequence directory (`Video_XXX`) contains matching frame and mask files.
 3. Update `config.yaml` `dataset.root` to reference the dataset root (relative paths are resolved from the config file directory).
 
@@ -184,7 +162,7 @@ If only a training sequence is provided (no validation/test), validation and vis
 2. **Edit `config.yaml`** to point `dataset.root` to your data and adjust training hyperparameters. To train on a single sequence, add:
   ```yaml
   dataset:
-    root: ../3D-image-processing
+    root: ../dataset-repo
     include: ["Video_000"]
   ```
 3. **Launch training:**
@@ -220,6 +198,8 @@ Issues and pull requests are welcome. Open a GitHub issue with reproduction deta
 Configure `config.yaml`, run a training session, and share qualitative/quantitative results via the issue tracker to help evolve the pipeline.
 
 ---
+
+> **Note:** Example paths in this README use placeholder directories. Replace any user-specific paths (e.g., `C:/Users/YourName/...`) with your own dataset locations. No private or sensitive information is required for setup or usage.
 
 ## Customizing the Model (Backbone, Layers, Activation)
 
