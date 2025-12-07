@@ -50,6 +50,20 @@ flowchart LR
 
 ---
 
+## Model Architecture Diagram
+
+```mermaid
+flowchart TD
+    I[Input Image (RGB)] -->|[3, H, W]| R[ResNet50 Backbone]
+    R --> F[Feature Maps]
+    F --> ASPP[ASPP (Atrous Spatial Pyramid Pooling)]
+    ASPP --> C[Classifier Head]
+    C -->|[H, W, num_classes]| S[Segmentation Output]
+    S -->|argmax| M[Predicted Mask (class IDs)]
+```
+
+---
+
 ## Prerequisites
 - Python 3.12 (recommended)
 - GPU: ROCm/CUDA device with ≥12 GB VRAM for practical training (CPU execution is supported but slow)
