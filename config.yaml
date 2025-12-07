@@ -15,8 +15,8 @@ dataset:
 training:
   output_dir: outputs/david
   batch_size: 2
-  val_batch_size: 1
-  epochs: 2
+  val_batch_size: 2
+  epochs: 4
   learning_rate: 0.001
   weight_decay: 0.001
   num_workers: "auto" # "auto", 1, 2, ...

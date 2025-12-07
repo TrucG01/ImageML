@@ -1,3 +1,24 @@
+# Table of Contents
+- [Example Output](#example-segmentation-output)
+- [Context Update](#context-update-2025-12-07)
+- [README Update](#readme-update-2025-12-07)
+- [DAVID Segmentation Trainer](#david-segmentation-trainer)
+  - [Overview](#overview)
+  - [Features](#features)
+  - [Architecture Overview](#architecture-overview)
+  - [Model Architecture & Data Flow](#model-architecture--data-flow)
+  - [Model Architecture Diagram](#model-architecture-diagram)
+  - [Prerequisites](#prerequisites)
+  - [Dataset Setup](#dataset-setup)
+  - [Configuration](#configuration)
+  - [Quick Start](#quick-start)
+  - [Outputs & Monitoring](#outputs--monitoring)
+  - [Troubleshooting](#troubleshooting)
+  - [Roadmap](#roadmap)
+  - [License & Credits](#license--credits)
+  - [Contributing & Support](#contributing--support)
+  - [Call To Action](#call-to-action)
+
 ![Example Segmentation Output](example_output.png)
 
 # ---
@@ -197,3 +218,84 @@ Issues and pull requests are welcome. Open a GitHub issue with reproduction deta
 
 ## Call To Action
 Configure `config.yaml`, run a training session, and share qualitative/quantitative results via the issue tracker to help evolve the pipeline.
+
+---
+
+## Customizing the Model (Backbone, Layers, Activation)
+
+You can adjust the model architecture and hyperparameters by editing `david_backend/model.py` and (optionally) exposing new options in `config.yaml`.
+
+### Example: Change Backbone or Activation
+
+1. **Change Backbone (e.g., ResNet50 → ResNet101):**
+   - Open `david_backend/model.py`.
+   - Find the model creation code (e.g., `torchvision.models.segmentation.deeplabv3_resnet50`).
+   - Replace with another backbone, e.g., `deeplabv3_resnet101`.
+
+2. **Change Activation Function:**
+   - In `model.py`, locate where activations are used (e.g., `nn.ReLU`).
+   - Replace with your preferred activation (e.g., `nn.LeakyReLU`).
+
+3. **Expose Options in config.yaml (Optional):**
+   - Add keys like `model.backbone` or `model.activation` to your `config.yaml`:
+     ```yaml
+     model:
+       backbone: resnet101
+       activation: leaky_relu
+     ```
+   - Update `model.py` to read these values and construct the model accordingly.
+
+### Making It Configurable
+- To make these options user-configurable, add them to your config and update the code to use them.
+- For more advanced changes (e.g., different architectures), you may need to extend the model-building logic in `model.py`.
+
+**Tip:** After making changes, always test training and inference to ensure compatibility.
+
+---
+
+## Using a Custom Model Architecture
+
+To use a more recent or custom model architecture (e.g., transformer-based, UNet, or your own design):
+
+1. **Implement Your Model:**
+   - Create your model class in `david_backend/model.py` or a new file (e.g., `david_backend/custom_models.py`).
+   - Ensure it inherits from `torch.nn.Module` and implements a `forward` method.
+   - Example:
+     ```python
+     import torch.nn as nn
+     class MyCustomModel(nn.Module):
+         def __init__(self, num_classes):
+             super().__init__()
+             # Define layers here
+         def forward(self, x):
+             # Forward pass logic
+             return {"out": ...}  # Match DeepLabV3+ output format
+     ```
+
+2. **Update Model Builder:**
+   - In `david_backend/model.py`, update the `build_model` function to select your custom model based on a config key (e.g., `model.type: custom`).
+   - Example:
+     ```python
+     def build_model(num_classes, model_type="deeplabv3+", ...):
+         if model_type == "custom":
+             return MyCustomModel(num_classes)
+         # ...existing options...
+     ```
+
+3. **Configure in config.yaml:**
+   - Add or update the model section:
+     ```yaml
+     model:
+       type: custom
+       # Add any custom model parameters here
+     ```
+
+4. **(Optional) Add Custom Parameters:**
+   - Pass additional config values to your model as needed (e.g., depth, heads, etc.).
+
+5. **Test Training and Inference:**
+   - Run training and inference to ensure your model integrates smoothly.
+
+**Tip:** Follow the input/output conventions of the existing pipeline for compatibility (input: `[B, 3, H, W]`, output: `{"out": logits}`).
+
+---
