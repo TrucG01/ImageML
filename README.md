@@ -288,10 +288,10 @@ To use a more recent or custom model architecture (e.g., transformer-based, UNet
 ## Example Outputs: Good vs. Bad Models
 
 <b>Good Model Output</b><br>
-<img src="outputs/inference_video_020/example_good.png" width="360">
+<img src="example_output.png" width="360">
 <br>
 <b>Bad Model Output</b><br>
-<img src="example_output.png" width="360">
+<img src="outputs/inference_video_020/example_good.png" width="360">
 
 - **Top:** Output from a well-trained model (clear class separation, accurate segmentation).
 - **Bottom:** Output from an underfit or poorly trained model (blurry, incorrect, or missing segmentation).
