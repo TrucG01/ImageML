@@ -113,6 +113,13 @@ def train_one_epoch(
             scaler.update()
         else:
             loss.backward()
+            # Optional gradient clipping
+            # If optimizer supports param groups, clip across all
+            try:
+                if hasattr(optimizer, "param_groups") and hasattr(loss, "item"):
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=getattr(model, "_max_grad_norm", 0.0) or 0.0)
+            except Exception:
+                pass
             optimizer.step()
         total_loss += loss.item()
         total_batches += 1

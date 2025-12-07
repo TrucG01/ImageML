@@ -20,6 +20,36 @@ flowchart LR
     E -->|maybe_visualize| H[Visual Outputs]
 ```
 
+## Model Architecture & Data Flow
+
+**Model:** DeepLabV3+ with ResNet50 backbone (PyTorch/TorchVision)
+- **Input:** RGB image, shape `[3, H, W]` (default `[3, 256, 256]` or `[3, 512, 512]`)
+- **Output:** Segmentation mask, shape `[H, W]`, each pixel is an integer class ID (0–12)
+- **Classes:** 13 semantic classes (traffic_sign, building, fence, other, pedestrian, pole, road_line, road, sidewalk, vegetation, car, wall, void)
+
+**Training Data:**
+- Images: `Images/Video_XXX/*.png` (or .jpg)
+- Masks: `Labels/Video_XXX/*.png` (RGB, same filenames as images)
+
+**Batch Processing:**
+- Each batch: `(images, masks, paths)`
+  - `images`: Tensor `[batch_size, 3, H, W]`
+  - `masks`: Tensor `[batch_size, H, W]` (class IDs)
+  - `paths`: List of image file paths
+
+**Inference:**
+- Model predicts a mask for each input image.
+- Visualizations overlay predicted masks on input images for qualitative review.
+
+**Example Data Flow:**
+1. Load image and mask, resize to `image_size`.
+2. Normalize image, encode mask to class IDs.
+3. Forward pass: `output = model(image_tensor)['out']` → `[batch_size, num_classes, H, W]`
+4. Predicted mask: `output.argmax(1)` → `[batch_size, H, W]`
+5. Overlay prediction for visualization.
+
+---
+
 ## Prerequisites
 - Python 3.12 (recommended)
 - GPU: ROCm/CUDA device with ≥12 GB VRAM for practical training (CPU execution is supported but slow)
@@ -46,12 +76,11 @@ Primary configuration file: `config.yaml`
 
 Required keys:
 - `dataset.root`
-- `dataset.split.train`
-- `dataset.split.val`
-- `dataset.split.test`
 - `training.output_dir`
 
 Optional keys (defaults in brackets):
+- `dataset.include` — restrict training to specific sequence(s), e.g. `["Video_000"]` for single-sequence runs
+- `dataset.labels` — explicitly specify labels directory if not `Labels/`
 - `backend.target` [`auto`]
 - `backend.amp` [`true`]
 - `training.batch_size` [`4`]
@@ -67,13 +96,20 @@ Optional keys (defaults in brackets):
 - `training.seed` [`1337`]
 - `training.force_resplit` [`false`]
 
+If only a training sequence is provided (no validation/test), validation and visualization steps are skipped automatically.
+
 ## Quick Start
 1. **Activate environment & install packages** (see prerequisites).
-2. **Edit `config.yaml`** to point `dataset.root` to your data and adjust training hyperparameters.
+2. **Edit `config.yaml`** to point `dataset.root` to your data and adjust training hyperparameters. To train on a single sequence, add:
+  ```yaml
+  dataset:
+    root: ../3D-image-processing
+    include: ["Video_000"]
+  ```
 3. **Launch training:**
-   ```powershell
-   python train_david.py --config config.yaml
-   ```
+  ```powershell
+  python train_david.py --config config.yaml
+  ```
 4. **Verify outputs:** watch console progress, check `outputs/david/history.json`, and review generated checkpoints/visualizations.
 
 ## Outputs & Monitoring

@@ -4,25 +4,41 @@ backend:
 
 dataset:
   root: ../3D-image-processing
+  include: ["Video_000", "Video_001"]
+  labels: Labels
   split:
-    train: 20
-    val: 4
-    test: 4
+    train: 1
+    val: 1
+    test: 0
     seed: 42
 
 training:
   output_dir: outputs/david
-  batch_size: 4
-  val_batch_size: 4
-  epochs: 80
-  learning_rate: 0.0001
-  weight_decay: 0.0001
-  num_workers: 4
-  image_size: [512, 512]
+  batch_size: 2
+  val_batch_size: 1
+  epochs: 2
+  learning_rate: 0.001
+  weight_decay: 0.001
+  num_workers: "auto" # "auto", 1, 2, ...
+  image_size: [256, 256]
   log_interval: 25
   val_interval: 1
-  visualization_interval: 5
+  visualization_interval: 1
   max_checkpoints: 5
   seed: 1337
   force_resplit: false
+
+# DataLoader settings
+dataloader:
+  pin_memory: true
+  persistent_workers: false
+  prefetch_factor: 2
+  timeout: 0
+
+# Memory-safety settings
+  # Enable cudnn benchmarking on CUDA (ignored on CPU/ROCm if unsupported)
+training_extra:
+  cudnn_benchmark: true
+  max_grad_norm: 0.0
+  empty_cache_each_epoch: true
 

@@ -44,8 +44,18 @@ from .model import build_model
 def run_training(config: ExperimentConfig) -> None:
     set_seed(config.seed)
     device, amp_enabled = select_device(config.backend, config.amp)
+    # Enable cudnn benchmark if desired
+    try:
+        import torch.backends.cudnn as cudnn  # type: ignore
+        cudnn.benchmark = bool(config.cudnn_benchmark and device.type == "cuda")
+    except Exception:
+        pass
 
     splits = load_or_create_splits(config.data_root, config.split, config.force_resplit)
+    # If user specified include_sequences, override splits to only use those
+    if getattr(config, "include_sequences", None):
+        seqs = [s for s in config.include_sequences if s]  # type: ignore[arg-type]
+        splits = {"train": seqs, "val": [], "test": []}
     print("Dataset split sizes:", {k: len(v) for k, v in splits.items()})
 
     train_samples = gather_samples(config.data_root, splits["train"])
@@ -60,30 +70,38 @@ def run_training(config: ExperimentConfig) -> None:
         config.image_size,
         augment=True,
     )
-    val_dataset = DAVIDDataset(
-        config.data_root,
-        splits["val"],
-        config.image_size,
-        augment=False,
-    )
-
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=config.num_workers,
-        pin_memory=device.type == "cuda",
+        pin_memory=bool(config.pin_memory and device.type == "cuda"),
         drop_last=False,
         collate_fn=collate_fn,
+        persistent_workers=bool(config.persistent_workers and config.num_workers > 0),
+        prefetch_factor=config.prefetch_factor if config.num_workers > 0 else None,
+        timeout=config.timeout,
     )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=config.val_batch_size,
-        shuffle=False,
-        num_workers=config.num_workers,
-        pin_memory=device.type == "cuda",
-        collate_fn=collate_fn,
-    )
+
+    val_loader = None
+    if splits["val"]:
+        val_dataset = DAVIDDataset(
+            config.data_root,
+            splits["val"],
+            config.image_size,
+            augment=False,
+        )
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=config.val_batch_size,
+            shuffle=False,
+            num_workers=config.num_workers,
+            pin_memory=bool(config.pin_memory and device.type == "cuda"),
+            collate_fn=collate_fn,
+            persistent_workers=bool(config.persistent_workers and config.num_workers > 0),
+            prefetch_factor=config.prefetch_factor if config.num_workers > 0 else None,
+            timeout=config.timeout,
+        )
 
     model = build_model(NUM_CLASSES, pretrained=True)
     model.to(device)
@@ -107,6 +125,11 @@ def run_training(config: ExperimentConfig) -> None:
 
     start_epoch = 1
     best_miou = -math.inf
+    # Attach max grad norm to model for clipping in engine
+    try:
+        setattr(model, "_max_grad_norm", float(config.max_grad_norm))
+    except Exception:
+        pass
     if config.resume_path is not None and config.resume_path.exists():
         checkpoint = torch.load(config.resume_path, map_location="cpu")
         model.load_state_dict(checkpoint["model_state"])
@@ -137,7 +160,7 @@ def run_training(config: ExperimentConfig) -> None:
         )
         history["train_loss"].append(train_loss)
 
-        if epoch % config.val_interval == 0:
+        if epoch % config.val_interval == 0 and val_loader is not None:
             val_loss, val_miou, per_class_iou = evaluate(
                 model,
                 val_loader,
@@ -181,6 +204,10 @@ def run_training(config: ExperimentConfig) -> None:
                 )
 
         scheduler.step()
+
+        # Optional memory relief
+        if config.empty_cache_each_epoch and device.type == "cuda":
+            torch.cuda.empty_cache()
 
         with history_path.open("w", encoding="utf-8") as handle:
             json.dump(history, handle, indent=2)

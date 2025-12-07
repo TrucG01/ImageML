@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple, List
+import os
+import platform
 
 try:
     import yaml
@@ -33,6 +35,15 @@ DEFAULTS = {
     "max_checkpoints": 5,
     "backend": "auto",
     "output_dir": "outputs",
+    # DataLoader knobs
+    "pin_memory": True,
+    "persistent_workers": False,
+    "prefetch_factor": 2,
+    "timeout": 0,
+    # Memory-safety knobs
+    "max_grad_norm": 0.0,
+    "cudnn_benchmark": True,
+    "empty_cache_each_epoch": False,
 }
 
 
@@ -65,6 +76,17 @@ class ExperimentConfig:
     max_checkpoints: int
     backend: str
     split: SplitConfig
+    # dataloader
+    pin_memory: bool
+    persistent_workers: bool
+    prefetch_factor: int
+    timeout: int
+    # memory safety
+    max_grad_norm: float
+    cudnn_benchmark: bool
+    empty_cache_each_epoch: bool
+    # optional: restrict to specific sequences
+    include_sequences: Optional[List[str]]
 
 
 def coalesce(*values: Any) -> Any:
@@ -146,6 +168,26 @@ def _pick_numeric(
     return cast_fn(DEFAULTS[default_key])
 
 
+def _resolve_num_workers(value: Any) -> int:
+    """Resolve num_workers allowing special string 'auto'.
+
+    'auto' -> max(1, os.cpu_count() - 1), with a conservative cap on Windows to reduce
+    spawn overhead (defaults to min(resolved, 8)).
+    """
+    if isinstance(value, str):
+        if value.strip().lower() == "auto":
+            cores = os.cpu_count() or 1
+            resolved = max(1, cores - 1)
+            if platform.system().lower().startswith("windows"):
+                resolved = min(resolved, 8)
+            return resolved
+        try:
+            return int(value)
+        except Exception:
+            pass
+    return int(value)
+
+
 def load_config(config_path: Optional[Path]) -> ExperimentConfig:
     path = config_path
     if path is None:
@@ -218,13 +260,12 @@ def load_config(config_path: Optional[Path]) -> ExperimentConfig:
         float,
     )
     weight_decay = _pick_numeric(None, yaml_cfg, ["training.weight_decay"], "weight_decay", float)
-    num_workers = _pick_numeric(
-        None,
-        yaml_cfg,
-        ["training.num_workers", "data.num_workers"],
-        "num_workers",
-        int,
+    num_workers_raw = coalesce(
+        extract_nested(yaml_cfg, "training.num_workers"),
+        extract_nested(yaml_cfg, "data.num_workers"),
+        DEFAULTS["num_workers"],
     )
+    num_workers = _resolve_num_workers(num_workers_raw)
 
     image_size_value = coalesce(
         extract_nested(yaml_cfg, "training.image_size"),
@@ -264,6 +305,34 @@ def load_config(config_path: Optional[Path]) -> ExperimentConfig:
         DEFAULTS["amp"],
     )
     amp = _to_bool(amp_value)
+    # DataLoader configuration
+    pin_memory = _to_bool(
+        coalesce(extract_nested(yaml_cfg, "dataloader.pin_memory"), DEFAULTS["pin_memory"])
+    )
+    persistent_workers = _to_bool(
+        coalesce(
+            extract_nested(yaml_cfg, "dataloader.persistent_workers"),
+            DEFAULTS["persistent_workers"],
+        )
+    )
+    prefetch_factor = int(
+        coalesce(extract_nested(yaml_cfg, "dataloader.prefetch_factor"), DEFAULTS["prefetch_factor"])
+    )
+    timeout = int(coalesce(extract_nested(yaml_cfg, "dataloader.timeout"), DEFAULTS["timeout"]))
+
+    # Memory-safety
+    max_grad_norm = float(
+        coalesce(extract_nested(yaml_cfg, "training.max_grad_norm"), DEFAULTS["max_grad_norm"])
+    )
+    cudnn_benchmark = _to_bool(
+        coalesce(extract_nested(yaml_cfg, "training.cudnn_benchmark"), DEFAULTS["cudnn_benchmark"])
+    )
+    empty_cache_each_epoch = _to_bool(
+        coalesce(
+            extract_nested(yaml_cfg, "training.empty_cache_each_epoch"),
+            DEFAULTS["empty_cache_each_epoch"],
+        )
+    )
 
     seed_value = coalesce(
         extract_nested(yaml_cfg, "training.seed"),
@@ -306,6 +375,19 @@ def load_config(config_path: Optional[Path]) -> ExperimentConfig:
         ),
     )
 
+    # Optional sequence restriction
+    include_sequences_value = coalesce(
+        extract_nested(yaml_cfg, "dataset.include"),
+        extract_nested(yaml_cfg, "dataset.sequences"),
+        extract_nested(yaml_cfg, "dataset.only_sequence"),
+    )
+    include_sequences: Optional[List[str]] = None
+    if include_sequences_value is not None:
+        if isinstance(include_sequences_value, (list, tuple)):
+            include_sequences = [str(x) for x in include_sequences_value]
+        else:
+            include_sequences = [str(include_sequences_value)]
+
     return ExperimentConfig(
         data_root=data_root,
         output_dir=output_dir,
@@ -326,4 +408,12 @@ def load_config(config_path: Optional[Path]) -> ExperimentConfig:
         max_checkpoints=max_checkpoints,
         backend=backend,
         split=split_cfg,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
+        prefetch_factor=prefetch_factor,
+        timeout=timeout,
+        max_grad_norm=max_grad_norm,
+        cudnn_benchmark=cudnn_benchmark,
+        empty_cache_each_epoch=empty_cache_each_epoch,
+        include_sequences=include_sequences,
     )
