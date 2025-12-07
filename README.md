@@ -54,12 +54,12 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    I[Input Image (RGB)] -->|[3, H, W]| R[ResNet50 Backbone]
+    I[Input Image (RGB, [3, H, W])] --> R[ResNet50 Backbone]
     R --> F[Feature Maps]
     F --> ASPP[ASPP (Atrous Spatial Pyramid Pooling)]
     ASPP --> C[Classifier Head]
-    C -->|[H, W, num_classes]| S[Segmentation Output]
-    S -->|argmax| M[Predicted Mask (class IDs)]
+    C --> S[Segmentation Output ([H, W, num_classes])]
+    S --> M[Predicted Mask (class IDs, [H, W])]
 ```
 
 ---
