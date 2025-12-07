@@ -42,6 +42,12 @@ from .model import build_model
 
 
 def run_training(config: ExperimentConfig) -> None:
+    """
+    Orchestrate end-to-end training for DAVID segmentation.
+
+    Args:
+        config: ExperimentConfig dataclass with all training parameters.
+    """
     set_seed(config.seed)
     device, amp_enabled = select_device(config.backend, config.amp)
     # Enable cudnn benchmark if desired

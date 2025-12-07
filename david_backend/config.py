@@ -158,7 +158,10 @@ def _pick_numeric(
     keys: Sequence[str],
     default_key: str,
     cast_fn,
-):
+) -> Any:
+    """
+    Pick a numeric value from arguments, config, or defaults, applying a cast function.
+    """
     if arg_value is not None:
         return cast_fn(arg_value)
     for key in keys:
@@ -169,10 +172,9 @@ def _pick_numeric(
 
 
 def _resolve_num_workers(value: Any) -> int:
-    """Resolve num_workers allowing special string 'auto'.
-
-    'auto' -> max(1, os.cpu_count() - 1), with a conservative cap on Windows to reduce
-    spawn overhead (defaults to min(resolved, 8)).
+    """
+    Resolve num_workers, allowing special string 'auto'.
+    'auto' -> max(1, os.cpu_count() - 1), capped at 8 on Windows.
     """
     if isinstance(value, str):
         if value.strip().lower() == "auto":
@@ -189,6 +191,15 @@ def _resolve_num_workers(value: Any) -> int:
 
 
 def load_config(config_path: Optional[Path]) -> ExperimentConfig:
+    """
+    Load experiment configuration from a YAML file.
+
+    Args:
+        config_path: Optional path to YAML config file. If None, uses default locations.
+
+    Returns:
+        ExperimentConfig: Parsed configuration dataclass.
+    """
     path = config_path
     if path is None:
         for candidate in CONFIG_DEFAULT_LOCATIONS:

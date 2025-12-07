@@ -12,6 +12,16 @@ def update_confusion_matrix(
     num_classes: int,
     ignore_index: int,
 ) -> None:
+    """
+    Update confusion matrix for IoU calculation.
+
+    Args:
+        conf_matrix: Confusion matrix tensor (num_classes x num_classes).
+        preds: Predicted class indices.
+        targets: Ground truth class indices.
+        num_classes: Number of classes.
+        ignore_index: Class index to ignore.
+    """
     preds = preds.view(-1)
     targets = targets.view(-1)
     mask = targets != ignore_index
@@ -24,7 +34,15 @@ def update_confusion_matrix(
     conf_matrix += hist.view(num_classes, num_classes)
 
 
-def compute_iou(conf_matrix: torch.Tensor):
+def compute_iou(conf_matrix: torch.Tensor) -> Tuple[torch.Tensor, float]:
+    """
+    Compute per-class and mean Intersection over Union (IoU).
+
+    Args:
+        conf_matrix: Confusion matrix tensor (num_classes x num_classes).
+    Returns:
+        Tuple[torch.Tensor, float]: (per_class_iou, mean_iou)
+    """
     intersection = torch.diag(conf_matrix)
     ground_truth = conf_matrix.sum(dim=1)
     predicted = conf_matrix.sum(dim=0)

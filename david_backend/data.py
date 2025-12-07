@@ -73,7 +73,14 @@ SPLIT_FILENAME = "splits_david.json"
 
 
 def encode_label_image(label_img: Image.Image) -> np.ndarray:
-    """Map an RGB semantic mask into class IDs."""
+    """
+    Map an RGB semantic mask into class IDs for DAVID segmentation.
+
+    Args:
+        label_img: PIL Image in RGB format.
+    Returns:
+        np.ndarray: Encoded mask of class IDs.
+    """
     np_label = np.array(label_img, dtype=np.uint8)
     if np_label.ndim != 3 or np_label.shape[2] != 3:
         raise ValueError("Label image must be RGB")
@@ -89,7 +96,14 @@ def encode_label_image(label_img: Image.Image) -> np.ndarray:
 
 
 def colorize_label_map(label_map: np.ndarray) -> np.ndarray:
-    """Convert class IDs back to RGB colors for visualization."""
+    """
+    Convert class IDs back to RGB colors for visualization.
+
+    Args:
+        label_map: 2D array of class IDs.
+    Returns:
+        np.ndarray: RGB visualization of segmentation mask.
+    """
     h, w = label_map.shape
     colored = np.zeros((h, w, 3), dtype=np.uint8)
     for class_id, color in CLASS_ID_TO_COLOR.items():
@@ -99,6 +113,14 @@ def colorize_label_map(label_map: np.ndarray) -> np.ndarray:
 
 
 def _resolve_dataset_roots(root: Path) -> Tuple[Path, Path]:
+    """
+    Resolve image and label root directories for the DAVID dataset.
+
+    Args:
+        root: Path to dataset root.
+    Returns:
+        Tuple[Path, Path]: (image_root, label_root)
+    """
     lower_images = root / "images"
     lower_labels = root / "labels"
     upper_images = root / "Images"
@@ -112,6 +134,14 @@ def _resolve_dataset_roots(root: Path) -> Tuple[Path, Path]:
 
 
 def discover_sequences(root: Path) -> List[str]:
+    """
+    Discover available sequence directories in the dataset root.
+
+    Args:
+        root: Path to dataset root.
+    Returns:
+        List[str]: List of sequence directory names.
+    """
     image_root, label_root = _resolve_dataset_roots(root)
     if not image_root.exists():
         raise FileNotFoundError(f"Dataset root not found: {image_root}")
@@ -133,6 +163,16 @@ def discover_sequences(root: Path) -> List[str]:
 def resolve_subdirectory(
     sequence_dir: Path, candidates: Sequence[str], *, allow_self: bool = False
 ) -> Path:
+    """
+    Find a subdirectory matching candidate names, or fallback to self if allowed.
+
+    Args:
+        sequence_dir: Path to sequence directory.
+        candidates: Possible subdirectory names.
+        allow_self: If True, allow using sequence_dir itself if it contains images.
+    Returns:
+        Path: Resolved subdirectory path.
+    """
     for candidate in candidates:
         candidate_path = sequence_dir / candidate
         if candidate_path.exists() and candidate_path.is_dir():
@@ -147,6 +187,15 @@ def resolve_subdirectory(
 
 
 def gather_samples(root: Path, sequence_names: Sequence[str]) -> List[Tuple[Path, Path]]:
+    """
+    Gather (image_path, label_path) pairs for all frames in given sequences.
+
+    Args:
+        root: Dataset root path.
+        sequence_names: List of sequence names.
+    Returns:
+        List[Tuple[Path, Path]]: List of (image, label) pairs.
+    """
     image_root, label_root = _resolve_dataset_roots(root)
     samples: List[Tuple[Path, Path]] = []
     for seq_name in sequence_names:
@@ -176,6 +225,16 @@ def gather_samples(root: Path, sequence_names: Sequence[str]) -> List[Tuple[Path
 
 
 def load_or_create_splits(root: Path, split_cfg: SplitConfig, force_resplit: bool) -> Dict[str, List[str]]:
+    """
+    Load or create train/val/test splits for the dataset.
+
+    Args:
+        root: Dataset root path.
+        split_cfg: SplitConfig dataclass.
+        force_resplit: If True, always recreate splits.
+    Returns:
+        Dict[str, List[str]]: Mapping of split names to sequence lists.
+    """
     split_path = root / SPLIT_FILENAME
     if split_path.exists() and not force_resplit:
         with split_path.open("r", encoding="utf-8") as handle:
@@ -217,6 +276,16 @@ def compute_class_weights(
     num_classes: int,
     ignore_index: int,
 ) -> torch.Tensor:
+    """
+    Compute class weights for loss balancing based on dataset frequency.
+
+    Args:
+        samples: List of (image, label) pairs.
+        num_classes: Number of classes.
+        ignore_index: Class index to ignore.
+    Returns:
+        torch.Tensor: Class weights tensor.
+    """
     counts = torch.zeros(num_classes, dtype=torch.float64)
     for _, label_path in samples:
         mask = Image.open(label_path).convert("RGB")
@@ -234,7 +303,17 @@ def compute_class_weights(
 
 
 class DAVIDDataset(Dataset):
-    """PyTorch dataset wrapper for DAVID sequences."""
+    """
+    PyTorch dataset wrapper for DAVID sequences.
+
+    Args:
+        root: Dataset root path.
+        sequence_names: List of sequence names.
+        image_size: (height, width) tuple for resizing.
+        augment: Whether to apply random augmentations.
+        mean: Normalization mean.
+        std: Normalization std.
+    """
 
     def __init__(
         self,
@@ -254,19 +333,31 @@ class DAVIDDataset(Dataset):
         self.samples = gather_samples(root, self.sequence_names)
 
     def __len__(self) -> int:
+        """
+        Return the number of samples in the dataset.
+        """
         return len(self.samples)
 
     def _resize_image(self, image: Image.Image) -> Image.Image:
+        """
+        Resize image to target size using bilinear interpolation.
+        """
         size = (self.image_size[1], self.image_size[0])
         return image.resize(size, resample=Resampling.BILINEAR)
 
     def _resize_mask(self, mask: Image.Image) -> Image.Image:
+        """
+        Resize mask to target size using nearest neighbor interpolation.
+        """
         size = (self.image_size[1], self.image_size[0])
         return mask.resize(size, resample=Resampling.NEAREST)
 
     def _apply_augmentations(
         self, image: Image.Image, mask: Image.Image
     ) -> Tuple[Image.Image, Image.Image]:
+        """
+        Apply random horizontal flip and small rotation to image and mask.
+        """
         if not self.augment:
             return image, mask
         if random.random() < 0.5:
@@ -278,7 +369,10 @@ class DAVIDDataset(Dataset):
             mask = mask.rotate(angle, resample=Resampling.NEAREST)
         return image, mask
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, str]:
+        """
+        Get a sample from the dataset: normalized image tensor, encoded mask, and image path.
+        """
         image_path, label_path = self.samples[idx]
         image = Image.open(image_path).convert("RGB")
         mask = Image.open(label_path).convert("RGB")

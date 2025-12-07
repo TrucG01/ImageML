@@ -7,26 +7,66 @@ from pathlib import Path
 import torch
 from torchvision.transforms import functional as TF
 from PIL import Image
-import cv2
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 import numpy as np
 
 from david_backend.model import build_model
 from david_backend.data import encode_label_image, colorize_label_map, DEFAULT_MEAN, DEFAULT_STD
 
 
-def load_checkpoint(model, checkpoint_path):
+def load_checkpoint(model: torch.nn.Module, checkpoint_path: str) -> torch.nn.Module:
+    """
+    Load model weights from checkpoint file.
+    Args:
+        model: Model instance.
+        checkpoint_path: Path to checkpoint file.
+    Returns:
+        torch.nn.Module: Model with loaded weights.
+    """
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     model.load_state_dict(checkpoint["model_state"])
     return model
 
-def infer_sequence(model, device, image_dir, output_dir, image_size=(256,256)):
-    image_paths = sorted([p for p in Path(image_dir).iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"}])
-    output_dir = Path(output_dir)
+def infer_sequence(
+    model: torch.nn.Module,
+    device: torch.device,
+    image_dir: Path,
+    output_dir: Path,
+    image_size: tuple = (256, 256)
+) -> None:
+    """
+    Run inference on a sequence of images and save overlays/video.
+    Args:
+        model: Trained segmentation model.
+        device: Target device.
+        image_dir: Path to directory of input frames.
+        output_dir: Path to directory to save overlays/video.
+        image_size: Resize images to this size.
+    """
+    """
+    Run inference on a sequence of images and save overlays/video.
+    Args:
+        model: Trained segmentation model.
+        device: Target device.
+        image_dir: Directory of input frames.
+        output_dir: Directory to save overlays/video.
+        image_size: Resize images to this size.
+    """
+    image_paths = sorted([p for p in image_dir.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"}])
     output_dir.mkdir(parents=True, exist_ok=True)
     frames = []
     for img_path in image_paths:
         image = Image.open(img_path).convert("RGB")
-        image = image.resize(image_size, Image.BILINEAR)
+        # Pillow >=9.1 uses Image.Resampling.BILINEAR, older uses Image.BILINEAR
+        if hasattr(Image, "Resampling"):
+            resample = Image.Resampling.BILINEAR
+        else:
+            resample = getattr(Image, "BILINEAR", 2)
+        image = image.resize(image_size, resample)
         image_tensor = TF.to_tensor(image)
         image_tensor = TF.normalize(image_tensor, DEFAULT_MEAN, DEFAULT_STD)
         image_tensor = image_tensor.unsqueeze(0).to(device)
@@ -36,21 +76,32 @@ def infer_sequence(model, device, image_dir, output_dir, image_size=(256,256)):
             pred_rgb = colorize_label_map(pred)
         # Overlay prediction on original image
         img_np = np.array(image)
-        overlay = cv2.addWeighted(img_np, 0.6, pred_rgb, 0.4, 0)
+        if CV2_AVAILABLE:
+            import cv2
+            overlay = cv2.addWeighted(img_np, 0.6, pred_rgb, 0.4, 0)
+        else:
+            overlay = (0.6 * img_np + 0.4 * pred_rgb).astype(np.uint8)
         frames.append(overlay)
         # Optionally save individual frames
         out_path = output_dir / f"{img_path.stem}_overlay.png"
         Image.fromarray(overlay).save(out_path)
     # Save video
-    video_path = str(output_dir / "inference_playback.mp4")
-    height, width, _ = frames[0].shape
-    writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*"mp4v"), 10, (width, height))
-    for frame in frames:
-        writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-    writer.release()
-    print(f"Saved playback video to {video_path}")
+    if CV2_AVAILABLE:
+        import cv2
+        video_path = str(output_dir / "inference_playback.mp4")
+        height, width, _ = frames[0].shape
+        writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*"mp4v"), 10, (width, height))
+        for frame in frames:
+            writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        writer.release()
+        print(f"Saved playback video to {video_path}")
+    else:
+        print("OpenCV (cv2) not installed. Skipping video creation. Overlays saved as PNGs.")
 
-def main():
+def main() -> None:
+    """
+    Main entrypoint for DAVID video inference script.
+    """
     parser = argparse.ArgumentParser(description="DAVID Segmentation Inference on Video Sequence")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to trained model checkpoint (best_model.pth)")
     parser.add_argument("--image_dir", type=str, required=True, help="Directory of input video frames")

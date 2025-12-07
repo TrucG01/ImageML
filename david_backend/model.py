@@ -11,10 +11,14 @@ from torchvision.ops.misc import FrozenBatchNorm2d
 
 
 def build_model(num_classes: int, pretrained: bool = True) -> nn.Module:
-    """Construct a DeepLabV3 model with a ResNet50 backbone.
+    """
+    Construct a DeepLabV3 model with a ResNet50 backbone for DAVID segmentation.
 
-    Uses torchvision factory to produce a classifier aligned with backbone features,
-    avoiding channel mismatches seen with MobileNetV3 variants.
+    Args:
+        num_classes: Number of output classes.
+        pretrained: If True, use pretrained weights for backbone.
+    Returns:
+        nn.Module: DeepLabV3 segmentation model.
     """
     # When weights are provided, torchvision expects num_classes to match the
     # pretrained dataset (typically 21). To use a custom class count, initialize

@@ -24,6 +24,12 @@ from .visualization import visualize_triplet
 
 
 def set_seed(seed: int) -> None:
+    """
+    Set random seed for reproducibility across Python, NumPy, and PyTorch.
+
+    Args:
+        seed: Integer seed value.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -32,6 +38,15 @@ def set_seed(seed: int) -> None:
 
 
 def select_device(backend: str, enable_amp: bool) -> Tuple[torch.device, bool]:
+    """
+    Select device for training (CPU, CUDA, ROCm) and AMP support.
+
+    Args:
+        backend: Target backend string ('auto', 'cuda', 'rocm', 'cpu').
+        enable_amp: Whether to enable automatic mixed precision.
+    Returns:
+        Tuple[torch.device, bool]: Device and AMP enabled flag.
+    """
     backend = backend.lower()
     if backend not in {"auto", "cuda", "rocm", "cpu"}:
         raise ValueError(f"Unknown backend '{backend}'.")
@@ -60,7 +75,15 @@ def select_device(backend: str, enable_amp: bool) -> Tuple[torch.device, bool]:
     return device, enable_amp
 
 
-def collate_fn(batch):
+def collate_fn(batch: list) -> Tuple[torch.Tensor, torch.Tensor, list]:
+    """
+    Collate function for DataLoader: stacks images and masks, collects paths.
+
+    Args:
+        batch: List of (image, mask, path) tuples.
+    Returns:
+        Tuple of stacked images, masks, and list of paths.
+    """
     images = torch.stack([sample[0] for sample in batch], dim=0)
     masks = torch.stack([sample[1] for sample in batch], dim=0)
     paths = [sample[2] for sample in batch]
@@ -78,6 +101,22 @@ def train_one_epoch(
     log_interval: int,
     amp_enabled: bool,
 ) -> float:
+    """
+    Train the model for one epoch.
+
+    Args:
+        model: PyTorch model.
+        dataloader: Training DataLoader.
+        optimizer: Optimizer.
+        criterion: Loss function.
+        device: Target device.
+        scaler: AMP GradScaler or None.
+        epoch: Current epoch number.
+        log_interval: Logging interval (unused).
+        amp_enabled: Whether AMP is enabled.
+    Returns:
+        float: Average training loss.
+    """
     del log_interval  # legacy argument retained for CLI compatibility
 
     model.train()
@@ -154,6 +193,18 @@ def evaluate(
     device: torch.device,
     amp_enabled: bool,
 ) -> Tuple[float, float, torch.Tensor]:
+    """
+    Evaluate the model on validation data.
+
+    Args:
+        model: PyTorch model.
+        dataloader: Validation DataLoader.
+        criterion: Loss function.
+        device: Target device.
+        amp_enabled: Whether AMP is enabled.
+    Returns:
+        Tuple[float, float, torch.Tensor]: (avg_loss, mean_iou, per_class_iou)
+    """
     model.eval()
     total_loss = 0.0
     num_samples: int = 0

@@ -10,6 +10,11 @@ from david_backend import train_from_config
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments for DAVID training entrypoint.
+    Returns:
+        argparse.Namespace: Parsed arguments.
+    """
     parser = argparse.ArgumentParser(description="Train DeepLabV3+ on the DAVID dataset")
     parser.add_argument(
         "--config",
@@ -21,6 +26,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """
+    Main entrypoint for DAVID training from YAML config.
+    """
     args = parse_args()
     train_from_config(args.config)
 
