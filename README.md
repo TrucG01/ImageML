@@ -284,3 +284,16 @@ To use a more recent or custom model architecture (e.g., transformer-based, UNet
 **Tip:** Follow the input/output conventions of the existing pipeline for compatibility (input: `[B, 3, H, W]`, output: `{"out": logits}`).
 
 ---
+
+## Example Outputs: Good vs. Bad Models
+
+| Good Model Output                                   | Bad Model Output                                    |
+|-----------------------------------------------------|-----------------------------------------------------|
+| ![Good Model](outputs/inference_video_020/example_good.png) | ![Bad Model](example_output.png) |
+
+- **Left:** Output from a well-trained model (clear class separation, accurate segmentation).
+- **Right:** Output from an underfit or poorly trained model (blurry, incorrect, or missing segmentation).
+
+> Replace these images with your own results as you improve your models!
+
+---

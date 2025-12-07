@@ -154,6 +154,13 @@ def run_training(config: ExperimentConfig) -> None:
             start_epoch = checkpoint.get("epoch", 0) + 1
             best_miou = checkpoint.get("best_miou", best_miou)
             print(f"Resumed training from {resume_path} at epoch {start_epoch}")
+        else:
+            print(f"[WARNING] resume_from_checkpoint is set to '{resume_path}', but file does not exist.")
+            response = input("Checkpoint not found. Start training from scratch? [y/N]: ").strip().lower()
+            if response != 'y':
+                print("Aborting training.")
+                return
+            print("Proceeding to train from scratch.")
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
     history_path = config.output_dir / "history.json"
