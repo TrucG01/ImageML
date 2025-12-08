@@ -74,9 +74,11 @@ training:
   seed: 1337
   force_resplit: false
   resume_from_checkpoint: outputs\model\best_model.pth # null  # Set to path of checkpoint to resume, e.g. outputs/model/best_model.pth
+  vram_target_fraction: 0.90
+  dram_target_mb: 4096
 
 # DataLoader settings
-  pin_memory: false # avoid host-pinned memory pressure
+  pin_memory: true # improve H2D transfer; monitor DRAM
   persistent_workers: false
   prefetch_factor: null
   timeout: 0

@@ -12,7 +12,6 @@ from torchvision.transforms import functional as TF
 
 try:
     import cv2
-
     CV2_AVAILABLE = True
 except ImportError:  # pragma: no cover - optional dependency
     CV2_AVAILABLE = False
@@ -49,91 +48,149 @@ def infer_sequence(
 ) -> None:
     """Run inference on a sequence of images and save overlays/video."""
     image_paths = sorted([p for p in image_dir.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"}])
+    print(f"[INFO] Found {len(image_paths)} images in {image_dir}")
+    if not image_paths:
+        raise RuntimeError(f"No images found in {image_dir}. Please check the path and file types.")
     output_dir.mkdir(parents=True, exist_ok=True)
     frames = []
+
     def draw_legend_area(image: np.ndarray, class_id_to_color, class_names, box_width=180, box_height=20, font_scale=0.5, font_thickness=1):
         # Creates a new canvas with the legend area to the right of the image
         import cv2
-        h, w, _ = image.shape
-        legend_area = np.zeros((h, box_width, 3), dtype=np.uint8) + 30  # dark background
+        h, w = image.shape[:2]
+        
+        # Legend width
+        legend_w = 260  
+        legend_area = np.zeros((h, legend_w, 3), dtype=np.uint8) + 30  # dark background
+        
         x0, y0 = 10, 10
         for idx, (class_id, color) in enumerate(class_id_to_color.items()):
             y = y0 + idx * box_height
             cv2.rectangle(legend_area, (x0, y), (x0 + box_height, y + box_height), color, -1)
-            text = class_names[class_id]
-            cv2.putText(legend_area, text, (x0 + box_height + 5, y + box_height - 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), font_thickness, cv2.LINE_AA)
+            
+            # Restore class name text in the legend
+            if class_id < len(class_names):
+                text = class_names[class_id]
+            else:
+                text = f"Class {class_id}"
+                
+            cv2.putText(legend_area, text, (x0 + box_height + 5, y + box_height - 5), 
+                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), font_thickness, cv2.LINE_AA)
+        
         # Draw border around legend area
-        cv2.rectangle(legend_area, (x0-5, y0-5), (box_width-5, y0+len(class_id_to_color)*box_height+5), (0,0,0), 2)
-        # Concatenate image and legend area horizontally
+        cv2.rectangle(legend_area, (x0-5, y0-5), (legend_w-5, y0+len(class_id_to_color)*box_height+5), (0,0,0), 2)
+        
+        # Add line thickness key below colors
+        key_y = y0 + len(class_id_to_color)*box_height + 20
+        
+        # Boundary line (1px)
+        cv2.line(legend_area, (x0+10, key_y), (x0+70, key_y), (200,200,200), 1)
+        cv2.putText(legend_area, 'Boundary (>50%)', (x0+80, key_y+5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200,200,200), 1, cv2.LINE_AA)
+        
+        # High Conf line (3px)
+        cv2.line(legend_area, (x0+10, key_y+25), (x0+70, key_y+25), (200,200,200), 3)
+        cv2.putText(legend_area, 'High Conf (>80%)', (x0+80, key_y+30), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200,200,200), 1, cv2.LINE_AA)
+        
+        # Explicit Data Type Safety before merging
+        if image.dtype != np.uint8:
+            if image.max() <= 1.0:
+                image = (image * 255).astype(np.uint8)
+            else:
+                image = image.astype(np.uint8)
+        
+        # Robust Resize check to avoid crash
+        img_h = image.shape[0]
+        leg_h = legend_area.shape[0]
+        if img_h != leg_h:
+            legend_area = cv2.resize(legend_area, (legend_area.shape[1], img_h))
+            
         combined = np.concatenate([image, legend_area], axis=1)
         return combined
 
-    for img_path in image_paths:
+    for idx, img_path in enumerate(image_paths):
+        print(f"[INFO] Processing image {idx+1}/{len(image_paths)}: {img_path.name}")
         image = Image.open(img_path).convert("RGB")
-        # Pillow >=9.1 uses Image.Resampling.BILINEAR, older uses Image.BILINEAR
+        
         if hasattr(Image, "Resampling"):
             resample = Image.Resampling.BILINEAR
         else:
             resample = getattr(Image, "BILINEAR", 2)
+            
         image = image.resize(image_size, resample)
         image_tensor = TF.to_tensor(image)
         image_tensor = TF.normalize(image_tensor, DEFAULT_MEAN, DEFAULT_STD)
         image_tensor = image_tensor.unsqueeze(0).to(device)
+        
         with torch.no_grad():
             output = model(image_tensor)["out"]
-            # Softmax for confidence
             probs = torch.softmax(output, dim=1)
             conf, pred = torch.max(probs, dim=1)
             pred = pred.squeeze().cpu().numpy().astype(np.uint8)
             conf = conf.squeeze().cpu().numpy()
             pred_rgb = colorize_label_map(pred)
+        
         # Overlay prediction on original image
         img_np = np.array(image)
+        
         if CV2_AVAILABLE:
             import cv2
             overlay = cv2.addWeighted(img_np, 0.6, pred_rgb, 0.4, 0)
-            # --- NEW LOGIC: Only label and draw largest contour per class ---
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = max(0.3, min(0.7, img_np.shape[0] / 512 * 0.5))
-            font_thickness = max(2, int(img_np.shape[0] * 0.005))
-            contour_thickness = max(3, int(img_np.shape[0] * 0.01))
+            
+            # Draw topographical contours for each class (multi-object)
             for class_id, class_color in CLASS_ID_TO_COLOR.items():
-                class_mask = (pred == class_id).astype(np.uint8)
-                contours, _ = cv2.findContours(class_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                if contours:
-                    largest_contour = max(contours, key=cv2.contourArea)
-                    # Draw high-contrast contour (thick, with white outline)
-                    cv2.drawContours(overlay, [largest_contour], -1, (255,255,255), contour_thickness+2)
-                    cv2.drawContours(overlay, [largest_contour], -1, tuple(class_color), contour_thickness)
-                    # Place label at centroid
-                    M = cv2.moments(largest_contour)
-                    if M["m00"] != 0:
-                        cx = int(M["m10"] / M["m00"])
-                        cy = int(M["m01"] / M["m00"])
-                        label_text = f"{CLASS_NAMES[class_id]}"
-                        (text_w, text_h), baseline = cv2.getTextSize(label_text, font, font_scale, font_thickness)
-                        box_x1 = max(0, cx - text_w // 2 - 2)
-                        box_y1 = max(0, cy - text_h // 2 - 2)
-                        box_x2 = min(img_np.shape[1], cx + text_w // 2 + 2)
-                        box_y2 = min(img_np.shape[0], cy + text_h // 2 + 2)
-                        if box_x2 > box_x1 and box_y2 > box_y1:
-                            overlay_box = overlay.copy()
-                            cv2.rectangle(overlay_box, (box_x1, box_y1), (box_x2, box_y2), (0,0,0), -1)
-                            alpha = 0.4
-                            overlay[box_y1:box_y2, box_x1:box_x2] = cv2.addWeighted(
-                                overlay[box_y1:box_y2, box_x1:box_x2], 1-alpha,
-                                overlay_box[box_y1:box_y2, box_x1:box_x2], alpha, 0)
-                            text_color = (255,255,255)
-                            cv2.putText(overlay, label_text, (box_x1+2, box_y2-2), font, font_scale, (0,0,0), font_thickness+2, cv2.LINE_AA)
-                            cv2.putText(overlay, label_text, (box_x1+2, box_y2-2), font, font_scale, text_color, font_thickness, cv2.LINE_AA)
+                # Convert color to BGR for OpenCV
+                bgr_color = tuple(int(c) for c in class_color[::-1])
+                img_area_total = pred.shape[0] * pred.shape[1]
+                
+                # --- BASE LAYER: prob > 0.5 ---
+                base_mask = ((probs[0, class_id] > 0.5).cpu().numpy().astype(np.uint8))
+                # Slight blur for base to smooth edges
+                base_mask_blur = cv2.GaussianBlur(base_mask, (5,5), 0)
+                base_contours, _ = cv2.findContours(base_mask_blur, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                # Iterate through all significant contours (multi-object)
+                for c in base_contours:
+                     area = cv2.contourArea(c)
+                     # Filter tiny noise
+                     if area > 0.005 * img_area_total:
+                        peri = cv2.arcLength(c, True)
+                        smooth_base = cv2.approxPolyDP(c, 0.001 * peri, True)
+                        
+                        # Draw base boundary: Thickness 1, slightly transparent logic
+                        overlay_base = overlay.copy()
+                        cv2.drawContours(overlay_base, [smooth_base], -1, bgr_color, 1, lineType=cv2.LINE_AA)
+                        overlay = cv2.addWeighted(overlay, 0.4, overlay_base, 0.6, 0)
+                
+                # --- CORE LAYER: prob > 0.8 ---
+                core_mask = ((probs[0, class_id] > 0.8).cpu().numpy().astype(np.uint8))
+                # Use reduced blur (3,3) for sharper high-confidence regions
+                core_mask_blur = cv2.GaussianBlur(core_mask, (3,3), 0)
+                core_contours, _ = cv2.findContours(core_mask_blur, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                # Iterate through all significant contours
+                for c in core_contours:
+                    area = cv2.contourArea(c)
+                    
+                    # Threshold: Only show core if it's significant (> 2% of screen)
+                    if area > 0.02 * img_area_total:
+                        peri = cv2.arcLength(c, True)
+                        smooth_core = cv2.approxPolyDP(c, 0.001 * peri, True)
+                        
+                        # Draw core boundary: Thickness 2 (Solid/Thick)
+                        cv2.drawContours(overlay, [smooth_core], -1, bgr_color, 2, lineType=cv2.LINE_AA)
+                        
+                        # NO TEXT LABELS
+            
+            # Attach the legend
             overlay = draw_legend_area(overlay, CLASS_ID_TO_COLOR, CLASS_NAMES)
+            
         else:
             overlay = (0.6 * img_np + 0.4 * pred_rgb).astype(np.uint8)
-            # If cv2 not available, skip legend area and contours
+            
         frames.append(overlay)
-        # Optionally save individual frames
         out_path = output_dir / f"{img_path.stem}_overlay.png"
         Image.fromarray(overlay).save(out_path)
+        
     # Save video
     if CV2_AVAILABLE and frames:
         import cv2
@@ -166,7 +223,7 @@ def main() -> None:
     model = load_checkpoint(model, args.checkpoint)
     model.to(device)
     model.eval()
-    # Convert CLI string arguments to Path objects
+    
     image_dir = Path(args.image_dir)
     output_dir = Path(args.output_dir)
     infer_sequence(model, device, image_dir, output_dir, tuple(args.image_size))

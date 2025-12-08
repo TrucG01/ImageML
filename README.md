@@ -1,4 +1,5 @@
 # Table of Contents
+- [Video Inference & Visualization](#video-inference--visualization)
 - [Example Output](#example-segmentation-output)
 - [Context Update](#context-update-2025-12-07)
 - [README Update](#readme-update-2025-12-07)
@@ -19,6 +20,20 @@
   - [License & Credits](#license--credits)
   - [Contributing & Support](#contributing--support)
   - [Call To Action](#call-to-action)
+  - [Optuna Study](#optuna-study)
+## Optuna Study
+
+Run a quick hyperparameter search to improve learning rate, batch size, and image size.
+
+```powershell
+# Install dependencies
+pip install -r requirements.txt
+
+# Run a 10-trial study
+python .\scripts\optuna_study.py --config .\config.yaml --trials 10 --study imageml-study
+```
+
+The study runs 1 epoch per trial with adaptive VRAM/DRAM caps and prints the best trial and parameters. Apply the winning params to `config.yaml` for full training.
 
 ![Example Segmentation Output](example_output.png)
 
@@ -45,6 +60,52 @@ VCS: `.git/` tree.
 
 
 # DAVID Segmentation Trainer
+
+## Video Inference & Visualization
+
+
+Run inference and generate overlay visualizations and a playback video from a directory of video frames using a trained model checkpoint.
+
+
+### Quick Example (Recommended)
+
+Activate your Python environment if needed:
+```powershell
+.\.venv\Scripts\activate
+```
+
+**PowerShell (Windows) users:**
+Run the full command on a single line (no backslashes):
+```powershell
+python .\scripts\infer_video.py --checkpoint outputs/model/best_model.pth --image_dir "<your_data_path>/Images/Video_XXX" --output_dir outputs/inference/Video_XXX --image_size 512 512
+```
+
+**Replace `<your_data_path>` and `Video_XXX` with your actual data location and video sequence.**
+
+
+**Arguments:**
+- `--checkpoint`: Path to your trained model checkpoint (e.g., `outputs/model/best_model.pth`)
+- `--image_dir`: Directory of input video frames (e.g., `<your_data_path>/Images/Video_XXX`)
+- `--output_dir`: Where to save overlays and video (default: `outputs/inference`)
+- `--image_size`: Resize images to (H W), e.g., `512 512` (default: `256 256`)
+
+
+**Tip:** You can set these paths in `config.yaml` for convenience and consistency across training and inference.
+
+
+**Output:**
+- Overlay PNGs for each frame in the output directory
+- `inference_playback.mp4` video (if OpenCV is installed)
+- Legend and class contours are drawn on overlays for easy interpretation
+
+
+> Note: Requires OpenCV (`cv2`) for video output. If not installed, only PNG overlays are saved.
+
+### Troubleshooting
+
+- If you see `ModuleNotFoundError: No module named 'model_backend'`, make sure you are running the command from the project root (where `model_backend/` is located) and that your environment is activated.
+- If you see `ModuleNotFoundError: No module named 'numpy'`, install dependencies with `pip install -r requirements.txt` in your active environment.
+- Always use the same Python version/environment for both installing packages and running scripts.
 
 ## Overview
 YAML-driven PyTorch pipeline for training DeepLabV3+ on DAVID-style driving footage with GPU-first optimizations. It automates dataset discovery, class balancing, mixed-precision training, and rich progress telemetry. The project assumes access to DAVID-like sequences such as the **TUM 3D Video Dataset** (CC BY 4.0, see attribution below) or equivalent internal sources.
@@ -187,11 +248,11 @@ If only a training sequence is provided (no validation/test), validation and vis
   - Start the GPU sampler (Admin recommended) and run training in a separate terminal:
     ```powershell
     # Terminal A (Admin recommended)
-    Push-Location "c:\Users\George\Github\ImageML\scripts"
+    Push-Location "<project_root>/scripts"
     .\gpu_proc_sampler.ps1 -Duration 60 -OutFile ..\gpu_proc_usage.csv -Interval 1
 
     # Terminal B
-    Push-Location "c:\Users\George\Github\ImageML"
+    Push-Location "<project_root>"
     python .\scripts\run_training.py --config .\config.yaml
     ```
 
@@ -231,7 +292,7 @@ Configure `config.yaml`, run a training session, and share qualitative/quantitat
 
 ---
 
-> **Note:** Example paths in this README use placeholder directories. Replace any user-specific paths (e.g., `C:/Users/YourName/...`) with your own dataset locations. No private or sensitive information is required for setup or usage.
+> **Note:** Example paths in this README use placeholder directories. Replace any user-specific paths (e.g., `<your_data_path>/Images/Video_XXX`) with your own dataset locations. No private or sensitive information is required for setup or usage.
 
 ## Customizing the Model (Backbone, Layers, Activation)
 

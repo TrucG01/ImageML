@@ -99,6 +99,10 @@ class ExperimentConfig:
     batch_mem_log_every: int
     dataset_mem_log_every: int
     detailed_batch_logging: bool
+    # vram target
+    vram_target_fraction: float
+    # dram target (soft cap in MB)
+    dram_target_mb: Optional[int]
 
 
 def coalesce(*values: Any) -> Any:
@@ -383,6 +387,19 @@ def load_config(config_path: Optional[Path]) -> ExperimentConfig:
         )
     )
 
+    vram_target_fraction = float(
+        coalesce(
+            extract_nested(yaml_cfg, "training.vram_target_fraction"),
+            0.90,
+        )
+    )
+
+    dram_target_mb_value = coalesce(
+        extract_nested(yaml_cfg, "training.dram_target_mb"),
+        None,
+    )
+    dram_target_mb = int(dram_target_mb_value) if dram_target_mb_value is not None else None
+
     seed_value = coalesce(
         extract_nested(yaml_cfg, "training.seed"),
         DEFAULTS["seed"],
@@ -470,5 +487,7 @@ def load_config(config_path: Optional[Path]) -> ExperimentConfig:
         batch_mem_log_every=batch_mem_log_every,
         dataset_mem_log_every=dataset_mem_log_every,
         detailed_batch_logging=detailed_batch_logging,
+        vram_target_fraction=vram_target_fraction,
+        dram_target_mb=dram_target_mb,
         include_sequences=include_sequences,
     )

@@ -234,8 +234,13 @@ def train_one_epoch(
             pass
         if detailed_batch_logging and should_log:
             log_mem(f"{stage_prefix} | stage=to_device (before)")
-        images = images.to(device)
-        targets = targets.to(device)
+        # Prefer channels_last + non_blocking transfers when pin_memory is enabled
+        try:
+            images = images.contiguous(memory_format=torch.channels_last)
+        except Exception:
+            pass
+        images = images.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
         if detailed_batch_logging and should_log:
             log_mem(f"{stage_prefix} | stage=to_device (after)")
         optimizer.zero_grad(set_to_none=True)
@@ -349,10 +354,23 @@ def evaluate(
             try:
                 allocated_mb = torch.cuda.memory_allocated(device) / (1024 ** 2)
                 reserved_mb = torch.cuda.memory_reserved(device) / (1024 ** 2)
+                free_b, total_b = torch.cuda.mem_get_info(device)
+                free_mb = free_b / (1024 ** 2)
+                total_mb = total_b / (1024 ** 2)
             except Exception:
                 allocated_mb = torch.cuda.memory_allocated() / (1024 ** 2)
                 reserved_mb = torch.cuda.memory_reserved() / (1024 ** 2)
-            vram_str = f"VRAM: {allocated_mb:.2f} MB (alloc), {reserved_mb:.2f} MB (reserved)"
+                try:
+                    free_b, total_b = torch.cuda.mem_get_info()
+                    free_mb = free_b / (1024 ** 2)
+                    total_mb = total_b / (1024 ** 2)
+                except Exception:
+                    free_mb = 0.0
+                    total_mb = 0.0
+            vram_str = (
+                f"VRAM: {allocated_mb:.2f} MB (alloc), {reserved_mb:.2f} MB (reserved),"
+                f" {free_mb:.2f} MB free / {total_mb:.2f} MB total"
+            )
         else:
             vram_str = "VRAM: 0.00 MB"
         with open(log_path, "a") as f:
@@ -380,8 +398,12 @@ def evaluate(
     with torch.no_grad():
         for step, (images, targets, _) in enumerate(iterator, start=1):
             log_mem(f"Validation Batch {step}")
-            images = images.to(device)
-            targets = targets.to(device)
+            try:
+                images = images.contiguous(memory_format=torch.channels_last)
+            except Exception:
+                pass
+            images = images.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
             autocast_ctx = (
                 torch.autocast(device_type="cuda", enabled=True) if use_amp else nullcontext()
             )

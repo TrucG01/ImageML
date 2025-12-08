@@ -44,6 +44,30 @@ from .model import build_model
 import tracemalloc
 
 
+def _dry_run_vram(model: nn.Module, device: torch.device, batch_size: int, image_size: Tuple[int, int]) -> Tuple[float, float]:
+    """Run a tiny forward to estimate VRAM reserved/allocated for a given batch_size."""
+    model.eval()
+    h, w = image_size
+    with torch.inference_mode():
+        images = torch.randn(batch_size, 3, h, w, dtype=torch.float32).to(device, non_blocking=True)
+        try:
+            images = images.to(memory_format=torch.channels_last)
+        except Exception:
+            pass
+        try:
+            out = model(images)
+            _ = out["out"] if isinstance(out, dict) else out
+        except Exception:
+            pass
+    allocated_mb = torch.cuda.max_memory_allocated(device) / (1024 ** 2) if device.type == "cuda" else 0.0
+    reserved_mb = torch.cuda.max_memory_reserved(device) / (1024 ** 2) if device.type == "cuda" else 0.0
+    # clear
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+        torch.cuda.empty_cache()
+    return allocated_mb, reserved_mb
+
+
 def _estimate_batch_memory_mb(batch_size: int, image_size: Tuple[int, int]) -> float:
     """Approximate DRAM usage per batch in megabytes."""
 
@@ -85,6 +109,26 @@ def _memory_safe_loader_params(
         new_prefetch = prefetch
 
     return adjusted_workers, new_prefetch
+
+
+def _adapt_batch_for_dram(
+    batch_size: int,
+    image_size: Tuple[int, int],
+    dram_target_mb: Optional[int],
+) -> int:
+    """Heuristically reduce batch size to respect a soft DRAM cap.
+
+    Uses a simple per-batch DRAM estimate (image + mask tensors on host) and
+    scales down batch_size until the estimate is under dram_target_mb.
+    """
+    if dram_target_mb is None or dram_target_mb <= 0:
+        return batch_size
+    est_mb = _estimate_batch_memory_mb(batch_size, image_size)
+    bs = max(1, batch_size)
+    while est_mb > dram_target_mb and bs > 1:
+        bs = max(1, bs // 2)
+        est_mb = _estimate_batch_memory_mb(bs, image_size)
+    return bs
 
 
 def run_training(config: ExperimentConfig) -> None:
@@ -131,6 +175,40 @@ def run_training(config: ExperimentConfig) -> None:
         augment=True,
         diagnostics_interval=getattr(config, "dataset_mem_log_every", 200),
     )
+    model = build_model(NUM_CLASSES, pretrained=True)
+    model.to(device)
+    # Best-effort channels_last on model parameters (safe fallback if unsupported)
+    # Prefer channels_last only on input batches; avoid mutating parameter tensors
+
+    # Adaptive batch size: pick largest batch under VRAM target fraction
+    if device.type == "cuda":
+        try:
+            free_b, total_b = torch.cuda.mem_get_info(device)
+            total_mb = total_b / (1024 ** 2)
+            target_mb = total_mb * float(getattr(config, "vram_target_fraction", 0.9))
+            chosen_bs = config.batch_size
+            test_bs = min(config.batch_size, 64)
+            while test_bs >= 1:
+                _, peak_reserved = _dry_run_vram(model, device, test_bs, config.image_size)
+                if peak_reserved <= target_mb:
+                    chosen_bs = test_bs
+                    break
+                test_bs //= 2
+            if chosen_bs != config.batch_size:
+                print(f"[Adaptive] batch_size {config.batch_size} -> {chosen_bs} (target ≤ {target_mb:.0f} MB VRAM)")
+                config.batch_size = chosen_bs
+        except Exception:
+            pass
+
+    # Optionally adapt batch size to respect DRAM soft cap
+    try:
+        adapted_bs = _adapt_batch_for_dram(config.batch_size, config.image_size, getattr(config, "dram_target_mb", None))
+        if adapted_bs != config.batch_size:
+            print(f"[Adaptive] DRAM cap: batch_size {config.batch_size} -> {adapted_bs} (soft cap {getattr(config, 'dram_target_mb', None)} MB)")
+            config.batch_size = adapted_bs
+    except Exception:
+        pass
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.batch_size,
@@ -165,8 +243,7 @@ def run_training(config: ExperimentConfig) -> None:
             timeout=config.timeout,
         )
 
-    model = build_model(NUM_CLASSES, pretrained=True)
-    model.to(device)
+    # model already constructed above
 
     criterion = nn.CrossEntropyLoss(
         weight=train_weights.to(device),
@@ -212,12 +289,7 @@ def run_training(config: ExperimentConfig) -> None:
             best_miou = checkpoint.get("best_miou", best_miou)
             print(f"Resumed training from {resume_path} at epoch {start_epoch}")
         else:
-            print(f"[WARNING] resume_from_checkpoint is set to '{resume_path}', but file does not exist.")
-            response = input("Checkpoint not found. Start training from scratch? [y/N]: ").strip().lower()
-            if response != 'y':
-                print("Aborting training.")
-                return
-            print("Proceeding to train from scratch.")
+            print(f"[WARNING] resume_from_checkpoint is set to '{resume_path}', but file does not exist. Proceeding to train from scratch.")
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
     history_path = config.output_dir / "history.json"
@@ -240,6 +312,22 @@ def run_training(config: ExperimentConfig) -> None:
         )
         history["train_loss"].append(train_loss)
 
+        # Always save a checkpoint at the end of each epoch (even without validation)
+        checkpoint_state = {
+            "epoch": epoch,
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "scheduler_state": scheduler.state_dict(),
+            "scaler_state": scaler.state_dict() if scaler is not None else None,
+            "best_miou": best_miou,
+        }
+        save_checkpoint(
+            checkpoint_state,
+            config.output_dir,
+            False,  # not best by default; will be set when validation improves
+            config.max_checkpoints,
+        )
+
         if epoch % config.val_interval == 0 and val_loader is not None:
             val_loss, val_miou, per_class_iou = evaluate(
                 model,
@@ -258,14 +346,7 @@ def run_training(config: ExperimentConfig) -> None:
             if is_best:
                 best_miou = val_miou
 
-            checkpoint_state = {
-                "epoch": epoch,
-                "model_state": model.state_dict(),
-                "optimizer_state": optimizer.state_dict(),
-                "scheduler_state": scheduler.state_dict(),
-                "scaler_state": scaler.state_dict() if scaler is not None else None,
-                "best_miou": best_miou,
-            }
+            checkpoint_state["best_miou"] = best_miou
             save_checkpoint(
                 checkpoint_state,
                 config.output_dir,
