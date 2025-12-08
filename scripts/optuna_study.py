@@ -70,8 +70,13 @@ def main():
     parser.add_argument("--study", type=str, default="imageml-study")
     args = parser.parse_args()
 
+    from tqdm import tqdm
     study = optuna.create_study(direction="maximize", study_name=args.study)
-    study.optimize(lambda t: objective(t, args.config), n_trials=args.trials)
+    print(f"Running {args.trials} Optuna trials with progress bar...")
+    with tqdm(total=args.trials, desc="Optuna Trials") as pbar:
+        def callback(study, trial):
+            pbar.update(1)
+        study.optimize(lambda t: objective(t, args.config), n_trials=args.trials, callbacks=[callback])
 
     print("Best trial:")
     print(f"  Value: {study.best_trial.value}")
