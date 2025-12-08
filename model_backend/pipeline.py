@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
+
+import psutil
 
 import torch
 from torch import nn
@@ -39,6 +41,50 @@ from .engine import (
     train_one_epoch,
 )
 from .model import build_model
+import tracemalloc
+
+
+def _estimate_batch_memory_mb(batch_size: int, image_size: Tuple[int, int]) -> float:
+    """Approximate DRAM usage per batch in megabytes."""
+
+    height, width = image_size
+    pixels = max(height * width, 1)
+    bytes_per_sample = (3 * 4 + 8) * pixels  # float32 image (3ch) + int64 mask
+    return batch_size * bytes_per_sample / (1024 ** 2)
+
+
+def _memory_safe_loader_params(
+    batch_size: int,
+    image_size: Tuple[int, int],
+    requested_workers: int,
+    requested_prefetch: Optional[int],
+    target_fraction: float = 0.5,
+) -> Tuple[int, Optional[int]]:
+    """Heuristically cap DataLoader workers/prefetch based on available RAM."""
+
+    if requested_workers <= 0:
+        return 0, None
+
+    vm_info = psutil.virtual_memory()
+    available_mb = vm_info.available / (1024 ** 2)
+    per_batch_mb = max(_estimate_batch_memory_mb(batch_size, image_size), 1.0)
+    prefetch = requested_prefetch or 2
+    per_worker_mb = per_batch_mb * prefetch
+    allowed_mb = max(available_mb * target_fraction, per_batch_mb)
+    max_workers = max(1, int(allowed_mb // max(per_worker_mb, 1.0)))
+    adjusted_workers = min(requested_workers, max_workers)
+
+    if adjusted_workers < 1:
+        adjusted_workers = 1
+
+    # Recompute prefetch if memory still tight
+    per_worker_budget = allowed_mb / adjusted_workers
+    if per_worker_mb > per_worker_budget:
+        new_prefetch = max(int(per_worker_budget // max(per_batch_mb, 1.0)), 1)
+    else:
+        new_prefetch = prefetch
+
+    return adjusted_workers, new_prefetch
 
 
 def run_training(config: ExperimentConfig) -> None:
@@ -50,6 +96,14 @@ def run_training(config: ExperimentConfig) -> None:
     """
     set_seed(config.seed)
     device, amp_enabled = select_device(config.backend, config.amp)
+    print(f"[Startup] Device: {device.type.upper()} | AMP enabled: {bool(amp_enabled)}")
+    # Start tracemalloc if enabled
+    if getattr(config, "enable_tracemalloc", False):
+        try:
+            tracemalloc.start()
+            print("[Diagnostics] tracemalloc started for allocation tracking")
+        except Exception:
+            pass
     # Enable cudnn benchmark if desired
     try:
         import torch.backends.cudnn as cudnn  # type: ignore
@@ -75,6 +129,7 @@ def run_training(config: ExperimentConfig) -> None:
         splits["train"],
         config.image_size,
         augment=True,
+        diagnostics_interval=getattr(config, "dataset_mem_log_every", 200),
     )
     train_loader = DataLoader(
         train_dataset,
@@ -85,7 +140,7 @@ def run_training(config: ExperimentConfig) -> None:
         drop_last=False,
         collate_fn=collate_fn,
         persistent_workers=bool(config.persistent_workers and config.num_workers > 0),
-        prefetch_factor=config.prefetch_factor if config.num_workers > 0 else None,
+        prefetch_factor=(config.prefetch_factor if config.num_workers > 0 else None),
         timeout=config.timeout,
     )
 
@@ -96,6 +151,7 @@ def run_training(config: ExperimentConfig) -> None:
             splits["val"],
             config.image_size,
             augment=False,
+            diagnostics_interval=getattr(config, "dataset_mem_log_every", 200),
         )
         val_loader = DataLoader(
             val_dataset,
@@ -105,7 +161,7 @@ def run_training(config: ExperimentConfig) -> None:
             pin_memory=bool(config.pin_memory and device.type == "cuda"),
             collate_fn=collate_fn,
             persistent_workers=bool(config.persistent_workers and config.num_workers > 0),
-            prefetch_factor=config.prefetch_factor if config.num_workers > 0 else None,
+            prefetch_factor=(config.prefetch_factor if config.num_workers > 0 else None),
             timeout=config.timeout,
         )
 
@@ -134,6 +190,7 @@ def run_training(config: ExperimentConfig) -> None:
     # Attach max grad norm to model for clipping in engine
     try:
         setattr(model, "_max_grad_norm", float(config.max_grad_norm))
+        setattr(model, "_gc_every_steps", int(getattr(config, "gc_every_steps", 10)))
     except Exception:
         pass
     # Support resume from checkpoint via config
@@ -178,6 +235,8 @@ def run_training(config: ExperimentConfig) -> None:
             epoch,
             config.log_interval,
             amp_enabled,
+            getattr(config, "batch_mem_log_every", 1),
+            getattr(config, "detailed_batch_logging", False),
         )
         history["train_loss"].append(train_loss)
 

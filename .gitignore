@@ -44,3 +44,7 @@
 meta_kernel.py
 
 outputs/*
+train_model.py
+memory_diagnostics.log
+gpu_diag.txt
+gpu_proc_usage.csv

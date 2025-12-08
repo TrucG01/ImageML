@@ -12,6 +12,7 @@
   - [Dataset Setup](#dataset-setup)
   - [Configuration](#configuration)
   - [Quick Start](#quick-start)
+  - [Diagnostics](#diagnostics)
   - [Outputs & Monitoring](#outputs--monitoring)
   - [Troubleshooting](#troubleshooting)
   - [Roadmap](#roadmap)
@@ -171,8 +172,34 @@ If only a training sequence is provided (no validation/test), validation and vis
   ```
 3. **Launch training:**
   ```powershell
-  python train_david.py --config config.yaml
+  python .\scripts\run_training.py --config .\config.yaml
   ```
+  ## Diagnostics
+
+  Collect per-process GPU memory and reconcile with PyTorch allocator stats.
+
+  - Enable PowerShell script execution for the current session only:
+    ```powershell
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+    Unblock-File .\scripts\gpu_proc_sampler.ps1
+    ```
+
+  - Start the GPU sampler (Admin recommended) and run training in a separate terminal:
+    ```powershell
+    # Terminal A (Admin recommended)
+    Push-Location "c:\Users\George\Github\ImageML\scripts"
+    .\gpu_proc_sampler.ps1 -Duration 60 -OutFile ..\gpu_proc_usage.csv -Interval 1
+
+    # Terminal B
+    Push-Location "c:\Users\George\Github\ImageML"
+    python .\scripts\run_training.py --config .\config.yaml
+    ```
+
+  - Check `gpu_proc_usage.csv` for the top `GPU_MB` usage and correlate with `memory_diagnostics.log` entries like:
+    - `VRAM: X MB (alloc), Y MB (reserved), Z MB free / T MB total`
+
+  This helps identify cases where the driver or other processes hold most VRAM while PyTorch allocator usage remains low.
+
   To resume from a previous checkpoint, set `training.resume_from_checkpoint` in your config file to the checkpoint path.
 4. **Verify outputs:** watch console progress, check `outputs/model/history.json`, and review generated checkpoints/visualizations.
 

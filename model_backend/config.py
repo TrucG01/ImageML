@@ -24,7 +24,7 @@ DEFAULTS = {
     "epochs": 80,
     "learning_rate": 1e-4,
     "weight_decay": 1e-4,
-    "num_workers": 4,
+    "num_workers": 0,  # Lower default workers to minimize DRAM on Windows
     "image_size": (512, 512),
     "log_interval": 25,
     "val_interval": 1,
@@ -38,12 +38,18 @@ DEFAULTS = {
     # DataLoader knobs
     "pin_memory": True,
     "persistent_workers": False,
-    "prefetch_factor": 2,
+    "prefetch_factor": 1,
     "timeout": 0,
     # Memory-safety knobs
     "max_grad_norm": 0.0,
     "cudnn_benchmark": True,
     "empty_cache_each_epoch": False,
+    # Diagnostics
+    "diagnostics.enable_tracemalloc": True,
+    "diagnostics.gc_every_steps": 10,
+    "diagnostics.batch_mem_log_every": 1,
+    "diagnostics.dataset_mem_log_every": 200,
+    "diagnostics.detailed_batch_logging": False,
 }
 
 
@@ -87,6 +93,12 @@ class ExperimentConfig:
     empty_cache_each_epoch: bool
     # optional: restrict to specific sequences
     include_sequences: Optional[List[str]]
+    # diagnostics
+    enable_tracemalloc: bool
+    gc_every_steps: int
+    batch_mem_log_every: int
+    dataset_mem_log_every: int
+    detailed_batch_logging: bool
 
 
 def coalesce(*values: Any) -> Any:
@@ -345,6 +357,32 @@ def load_config(config_path: Optional[Path]) -> ExperimentConfig:
         )
     )
 
+    # Diagnostics configuration
+    enable_tracemalloc = _to_bool(
+        coalesce(extract_nested(yaml_cfg, "diagnostics.enable_tracemalloc"), DEFAULTS["diagnostics.enable_tracemalloc"])
+    )
+    gc_every_steps = int(
+        coalesce(extract_nested(yaml_cfg, "diagnostics.gc_every_steps"), DEFAULTS["diagnostics.gc_every_steps"])
+    )
+    batch_mem_log_every = int(
+        coalesce(
+            extract_nested(yaml_cfg, "diagnostics.batch_mem_log_every"),
+            DEFAULTS["diagnostics.batch_mem_log_every"],
+        )
+    )
+    dataset_mem_log_every = int(
+        coalesce(
+            extract_nested(yaml_cfg, "diagnostics.dataset_mem_log_every"),
+            DEFAULTS["diagnostics.dataset_mem_log_every"],
+        )
+    )
+    detailed_batch_logging = _to_bool(
+        coalesce(
+            extract_nested(yaml_cfg, "diagnostics.detailed_batch_logging"),
+            DEFAULTS["diagnostics.detailed_batch_logging"],
+        )
+    )
+
     seed_value = coalesce(
         extract_nested(yaml_cfg, "training.seed"),
         DEFAULTS["seed"],
@@ -426,5 +464,11 @@ def load_config(config_path: Optional[Path]) -> ExperimentConfig:
         max_grad_norm=max_grad_norm,
         cudnn_benchmark=cudnn_benchmark,
         empty_cache_each_epoch=empty_cache_each_epoch,
+        # diagnostics
+        enable_tracemalloc=enable_tracemalloc,
+        gc_every_steps=gc_every_steps,
+        batch_mem_log_every=batch_mem_log_every,
+        dataset_mem_log_every=dataset_mem_log_every,
+        detailed_batch_logging=detailed_batch_logging,
         include_sequences=include_sequences,
     )

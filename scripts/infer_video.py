@@ -1,21 +1,30 @@
-"""
-Run inference on a video sequence using a trained DAVID segmentation model.
-Saves a playback video with predicted segmentation overlays.
-"""
+"""Run inference on a video sequence using a trained DAVID segmentation model."""
+
+from __future__ import annotations
+
 import argparse
 from pathlib import Path
+
+import numpy as np
 import torch
-from torchvision.transforms import functional as TF
 from PIL import Image
+from torchvision.transforms import functional as TF
+
 try:
     import cv2
-    CV2_AVAILABLE = True
-except ImportError:
-    CV2_AVAILABLE = False
-import numpy as np
 
+    CV2_AVAILABLE = True
+except ImportError:  # pragma: no cover - optional dependency
+    CV2_AVAILABLE = False
+
+from model_backend.data import (
+    CLASS_ID_TO_COLOR,
+    CLASS_NAMES,
+    DEFAULT_MEAN,
+    DEFAULT_STD,
+    colorize_label_map,
+)
 from model_backend.model import build_model
-from model_backend.data import encode_label_image, colorize_label_map, DEFAULT_MEAN, DEFAULT_STD
 
 
 def load_checkpoint(model: torch.nn.Module, checkpoint_path: str) -> torch.nn.Module:
@@ -38,27 +47,9 @@ def infer_sequence(
     output_dir: Path,
     image_size: tuple = (256, 256)
 ) -> None:
-    """
-    Run inference on a sequence of images and save overlays/video.
-    Args:
-        model: Trained segmentation model.
-        device: Target device.
-        image_dir: Path to directory of input frames.
-        output_dir: Path to directory to save overlays/video.
-        image_size: Resize images to this size.
-    """
-    """
-    Run inference on a sequence of images and save overlays/video.
-    Args:
-        model: Trained segmentation model.
-        device: Target device.
-        image_dir: Directory of input frames.
-        output_dir: Directory to save overlays/video.
-        image_size: Resize images to this size.
-    """
+    """Run inference on a sequence of images and save overlays/video."""
     image_paths = sorted([p for p in image_dir.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"}])
     output_dir.mkdir(parents=True, exist_ok=True)
-    from model_backend.data import CLASS_ID_TO_COLOR, CLASS_NAMES
     frames = []
     def draw_legend_area(image: np.ndarray, class_id_to_color, class_names, box_width=180, box_height=20, font_scale=0.5, font_thickness=1):
         # Creates a new canvas with the legend area to the right of the image
@@ -90,31 +81,72 @@ def infer_sequence(
         image_tensor = image_tensor.unsqueeze(0).to(device)
         with torch.no_grad():
             output = model(image_tensor)["out"]
-            pred = output.argmax(1).squeeze().cpu().numpy().astype(np.uint8)
+            # Softmax for confidence
+            probs = torch.softmax(output, dim=1)
+            conf, pred = torch.max(probs, dim=1)
+            pred = pred.squeeze().cpu().numpy().astype(np.uint8)
+            conf = conf.squeeze().cpu().numpy()
             pred_rgb = colorize_label_map(pred)
         # Overlay prediction on original image
         img_np = np.array(image)
         if CV2_AVAILABLE:
             import cv2
             overlay = cv2.addWeighted(img_np, 0.6, pred_rgb, 0.4, 0)
+            # --- NEW LOGIC: Only label and draw largest contour per class ---
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = max(0.3, min(0.7, img_np.shape[0] / 512 * 0.5))
+            font_thickness = max(2, int(img_np.shape[0] * 0.005))
+            contour_thickness = max(3, int(img_np.shape[0] * 0.01))
+            for class_id, class_color in CLASS_ID_TO_COLOR.items():
+                class_mask = (pred == class_id).astype(np.uint8)
+                contours, _ = cv2.findContours(class_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if contours:
+                    largest_contour = max(contours, key=cv2.contourArea)
+                    # Draw high-contrast contour (thick, with white outline)
+                    cv2.drawContours(overlay, [largest_contour], -1, (255,255,255), contour_thickness+2)
+                    cv2.drawContours(overlay, [largest_contour], -1, tuple(class_color), contour_thickness)
+                    # Place label at centroid
+                    M = cv2.moments(largest_contour)
+                    if M["m00"] != 0:
+                        cx = int(M["m10"] / M["m00"])
+                        cy = int(M["m01"] / M["m00"])
+                        label_text = f"{CLASS_NAMES[class_id]}"
+                        (text_w, text_h), baseline = cv2.getTextSize(label_text, font, font_scale, font_thickness)
+                        box_x1 = max(0, cx - text_w // 2 - 2)
+                        box_y1 = max(0, cy - text_h // 2 - 2)
+                        box_x2 = min(img_np.shape[1], cx + text_w // 2 + 2)
+                        box_y2 = min(img_np.shape[0], cy + text_h // 2 + 2)
+                        if box_x2 > box_x1 and box_y2 > box_y1:
+                            overlay_box = overlay.copy()
+                            cv2.rectangle(overlay_box, (box_x1, box_y1), (box_x2, box_y2), (0,0,0), -1)
+                            alpha = 0.4
+                            overlay[box_y1:box_y2, box_x1:box_x2] = cv2.addWeighted(
+                                overlay[box_y1:box_y2, box_x1:box_x2], 1-alpha,
+                                overlay_box[box_y1:box_y2, box_x1:box_x2], alpha, 0)
+                            text_color = (255,255,255)
+                            cv2.putText(overlay, label_text, (box_x1+2, box_y2-2), font, font_scale, (0,0,0), font_thickness+2, cv2.LINE_AA)
+                            cv2.putText(overlay, label_text, (box_x1+2, box_y2-2), font, font_scale, text_color, font_thickness, cv2.LINE_AA)
             overlay = draw_legend_area(overlay, CLASS_ID_TO_COLOR, CLASS_NAMES)
         else:
             overlay = (0.6 * img_np + 0.4 * pred_rgb).astype(np.uint8)
-            # If cv2 not available, skip legend area
+            # If cv2 not available, skip legend area and contours
         frames.append(overlay)
         # Optionally save individual frames
         out_path = output_dir / f"{img_path.stem}_overlay.png"
         Image.fromarray(overlay).save(out_path)
     # Save video
-    if CV2_AVAILABLE:
+    if CV2_AVAILABLE and frames:
         import cv2
         video_path = str(output_dir / "inference_playback.mp4")
         height, width, _ = frames[0].shape
-        writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*"mp4v"), 10, (width, height))
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore[attr-defined]
+        writer = cv2.VideoWriter(video_path, fourcc, 10, (width, height))
         for frame in frames:
             writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
         writer.release()
         print(f"Saved playback video to {video_path}")
+    elif CV2_AVAILABLE:
+        print("No frames were processed; skipping video creation.")
     else:
         print("OpenCV (cv2) not installed. Skipping video creation. Overlays saved as PNGs.")
 

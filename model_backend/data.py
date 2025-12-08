@@ -287,14 +287,26 @@ def compute_class_weights(
         torch.Tensor: Class weights tensor.
     """
     counts = torch.zeros(num_classes, dtype=torch.float64)
-    for _, label_path in samples:
-        mask = Image.open(label_path).convert("RGB")
-        encoded = encode_label_image(mask)
+    # Cap the number of labels scanned to reduce RAM usage on large datasets
+    max_labels = 100
+    for i, (_, label_path) in enumerate(samples):
+        if i >= max_labels:
+            break
+        # Ensure label files are closed promptly to avoid leaking file handles and RAM
+        with Image.open(label_path) as m:
+            mask_rgb = m.convert("RGB")
+        encoded = encode_label_image(mask_rgb)
+        # Free PIL image as soon as we have the encoded array
+        del mask_rgb
         encoded_flat = torch.from_numpy(encoded.reshape(-1))
+        # Release numpy array memory early
+        del encoded
         valid = encoded_flat != ignore_index
         if valid.any():
             hist = torch.bincount(encoded_flat[valid], minlength=num_classes).to(torch.float64)
             counts += hist
+        # Free intermediate tensors early
+        del encoded_flat
     total = counts.sum().clamp(min=1.0)
     weights = total / counts.clamp(min=1.0)
     weights[ignore_index] = 0.0
@@ -323,6 +335,7 @@ class SegmentationDataset(Dataset):
         augment: bool,
         mean: Sequence[float] = DEFAULT_MEAN,
         std: Sequence[float] = DEFAULT_STD,
+        diagnostics_interval: int = 200,
     ) -> None:
         self.root = root
         self.sequence_names = list(sequence_names)
@@ -331,6 +344,11 @@ class SegmentationDataset(Dataset):
         self.mean = mean
         self.std = std
         self.samples = gather_samples(root, self.sequence_names)
+        try:
+            interval = int(diagnostics_interval)
+        except Exception:
+            interval = 0
+        self.diagnostics_interval = max(1, interval) if interval > 0 else 0
 
     def __len__(self) -> int:
         """
@@ -372,14 +390,31 @@ class SegmentationDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, str]:
         """
         Get a sample from the dataset: normalized image tensor, encoded mask, and image path.
+        Also prints RAM and VRAM usage for diagnostics.
         """
+        import psutil
+        import torch
+        import os
         image_path, label_path = self.samples[idx]
-        image = Image.open(image_path).convert("RGB")
-        mask = Image.open(label_path).convert("RGB")
+        # Ensure files are closed promptly to avoid descriptor leaks
+        with Image.open(image_path) as img:
+            image = img.convert("RGB")
+        with Image.open(label_path) as m:
+            mask = m.convert("RGB")
         image, mask = self._apply_augmentations(image, mask)
         image = self._resize_image(image)
         mask = self._resize_mask(mask)
         image_tensor = TF.to_tensor(image)
         image_tensor = TF.normalize(image_tensor, list(self.mean), list(self.std))
         encoded_mask = torch.from_numpy(encode_label_image(mask)).long()
+        # Free PIL images as soon as tensors are formed
+        del image, mask
+        # Diagnostics: Print RAM and VRAM usage every 200 samples to reduce noise
+        if self.diagnostics_interval and idx % self.diagnostics_interval == 0:
+            process = psutil.Process(os.getpid())
+            ram_mb = process.memory_info().rss / (1024 ** 2)
+            print(f"[Diagnostics] RAM usage: {ram_mb:.2f} MB")
+            if torch.cuda.is_available():
+                vram_mb = torch.cuda.memory_allocated() / (1024 ** 2)
+                print(f"[Diagnostics] VRAM usage: {vram_mb:.2f} MB")
         return image_tensor, encoded_mask, str(image_path)

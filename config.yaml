@@ -1,46 +1,97 @@
+# =========================
+# CONFIGURATION DOCUMENTATION
+# =========================
+#
+# dataset:
+#   root: Path to the dataset directory.
+#   include: List of video/sequence names to use (e.g. ["Video_000", ...]).
+#   labels: Name of the labels folder or file.
+#   split:
+#     train: Number of sequences for training (randomly selected from 'include').
+#     val: Number of sequences for validation.
+#     test: Number of sequences for testing.
+#     seed: Random seed for reproducible splits.
+#
+# training:
+#   output_dir: Where to save model outputs and checkpoints.
+#   batch_size: Training batch size.
+#   val_batch_size: Validation batch size.
+#   epochs: Number of training epochs.
+#   learning_rate: Initial learning rate.
+#   weight_decay: Weight decay for optimizer.
+#   num_workers: Number of DataLoader workers ("auto" uses all available cores).
+#   image_size: [height, width] for input images.
+#   log_interval: Print training logs every N batches.
+#   val_interval: Run validation every N epochs.
+#   visualization_interval: Save visualizations every N epochs.
+#   max_checkpoints: Max number of checkpoints to keep.
+#   seed: Random seed for training reproducibility.
+#   force_resplit: If true, always resplit dataset (ignore cached splits).
+#   resume_from_checkpoint: Path to checkpoint to resume training (set to null to train from scratch).
+
+
+# Visualization settings
+visualization:
+  show_contours: true
+  contour_confidence: 0.9
+  contour_color: [255, 255, 0]  # yellow
+  contour_thickness: 1
+  contour_levels: [0.7, 0.9]    # levels for grid mask overlays
+  grid_colors: [[255, 255, 0], [255, 0, 255]]  # yellow, magenta
+  grid_densities: [20, 10]      # grid spacing for each contour level
 backend:
   target: rocm
   amp: true
 
 dataset:
   root: ../3D-image-processing
-  include: ["Video_000", "Video_001"]
+  include: ["Video_000", "Video_001", "Video_002", "Video_003", "Video_004"]
   labels: Labels
   split:
-    train: 1
+    train: 3
     val: 1
-    test: 0
+    test: 1
     seed: 42
 
 
 training:
   output_dir: outputs/model
-  batch_size: 2
-  val_batch_size: 2
+  batch_size: 8 # safer for memory stability
+  batch_search:
+    max_attempts: 10  # Maximum number of batch size search attempts
+    initial: 32       # Initial batch size to start doubling
+    min: 1            # Minimum batch size allowed
+  val_batch_size: 8
   epochs: 4
-  learning_rate: 0.001
-  weight_decay: 0.001
-  num_workers: "auto" # "auto", 1, 2, ...
-  image_size: [256, 256]
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  num_workers: 0 # keep 0 for Windows stability
+  image_size: [256, 256] # reduce per-batch VRAM/DRAM footprint
   log_interval: 25
   val_interval: 1
   visualization_interval: 1
   max_checkpoints: 5
   seed: 1337
   force_resplit: false
-  resume_from_checkpoint: null  # Set to path of checkpoint to resume, e.g. outputs/model/best_model.pth
+  resume_from_checkpoint: outputs\model\best_model.pth # null  # Set to path of checkpoint to resume, e.g. outputs/model/best_model.pth
 
 # DataLoader settings
-dataloader:
-  pin_memory: true
+  pin_memory: false # avoid host-pinned memory pressure
   persistent_workers: false
-  prefetch_factor: 2
+  prefetch_factor: null
   timeout: 0
 
 # Memory-safety settings
   # Enable cudnn benchmarking on CUDA (ignored on CPU/ROCm if unsupported)
 training_extra:
-  cudnn_benchmark: true
+  cudnn_benchmark: false
   max_grad_norm: 0.0
   empty_cache_each_epoch: true
+
+diagnostics:
+  enable_tracemalloc: true
+  gc_every_steps: 200
+  batch_mem_log_every: 5
+  dataset_mem_log_every: 50
+  detailed_batch_logging: false
 
